@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 import os
 
-from ad_detection_common.models.device import Device, DeviceHealth, DeviceStatus
+from ad_detection_common.models.device import Device, DeviceCapability, DeviceHealth, DeviceStatus
 from ad_detection_edge.local_fleet.coordinator import (
     CoordinatorService,
     HeartbeatMessage,
@@ -31,6 +31,12 @@ from ad_detection_edge.local_fleet.coordinator import (
     VoteResponse,
 )
 from ad_detection_edge.local_fleet.registry import DeviceRegistry
+from tv_control import (
+    ControlMethod,
+    TVBrand,
+    TVControllerConfig,
+)
+from tv_control.controller import UnifiedTVController, create_tv_controller
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +98,58 @@ class AppState:
         self.registry = registry
         self.coordinator_service = coordinator_service
         self.event_queue: asyncio.Queue = asyncio.Queue()
+        self.tv_controllers: dict[str, UnifiedTVController] = {}
+
+    async def get_or_create_tv_controller(self, device: Device) -> Optional[UnifiedTVController]:
+        """Get or create a TV controller for a device.
+
+        Args:
+            device: Device to get controller for
+
+        Returns:
+            TV controller if device supports TV control, None otherwise
+        """
+        # Check if we already have a controller
+        if device.device_id in self.tv_controllers:
+            return self.tv_controllers[device.device_id]
+
+        # Determine control methods based on device capabilities
+        preferred_methods = []
+
+        if DeviceCapability.HDMI_CEC in device.capabilities:
+            preferred_methods.append(ControlMethod.HDMI_CEC)
+
+        if DeviceCapability.IR_BLASTER in device.capabilities:
+            preferred_methods.append(ControlMethod.IR_BLASTER)
+
+        if DeviceCapability.HTTP_API in device.capabilities:
+            preferred_methods.append(ControlMethod.HTTP_API)
+
+        if DeviceCapability.BLUETOOTH in device.capabilities:
+            preferred_methods.append(ControlMethod.BLUETOOTH)
+
+        # If no TV control capabilities, return None
+        if not preferred_methods:
+            logger.warning(f"Device {device.device_id} has no TV control capabilities")
+            return None
+
+        # Create TV controller config
+        config = TVControllerConfig(
+            device_id=device.device_id,
+            brand=TVBrand.GENERIC,  # TODO: Store TV brand in device metadata
+            preferred_methods=preferred_methods,
+            ir_remote_name=None,  # TODO: Get from device metadata
+        )
+
+        # Create and initialize controller
+        try:
+            controller = await create_tv_controller(config)
+            self.tv_controllers[device.device_id] = controller
+            logger.info(f"Created TV controller for {device.device_id} with methods: {preferred_methods}")
+            return controller
+        except Exception as e:
+            logger.error(f"Failed to create TV controller for {device.device_id}: {e}")
+            return None
 
 
 # Application Factory
@@ -345,7 +403,7 @@ def create_app(
             Operation status
 
         Raises:
-            HTTPException: If device not found
+            HTTPException: If device not found or TV control failed
         """
         state: AppState = request.app.state.app_state
 
@@ -354,27 +412,62 @@ def create_app(
         if device is None:
             raise HTTPException(status_code=404, detail="Device not found")
 
-        # TODO: Implement actual TV control
-        # For now, just acknowledge the request
         logger.info(
             f"Channel change requested: {channel_request.device_id} -> {channel_request.channel}"
         )
 
-        # Notify via event stream
-        await state.event_queue.put(
-            {
-                "event": "channel_changed",
+        # Get or create TV controller for this device
+        controller = await state.get_or_create_tv_controller(device)
+        if controller is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Device {channel_request.device_id} does not support TV control"
+            )
+
+        # Send channel change command
+        try:
+            success = await controller.set_channel(channel_request.channel)
+
+            if not success:
+                raise HTTPException(
+                    status_code=500,
+                    detail="TV control command failed on all available methods"
+                )
+
+            # Get which method was used
+            available_methods = await controller.get_available_methods()
+            method_used = controller.current_method if hasattr(controller, 'current_method') else None
+
+            logger.info(
+                f"Channel changed successfully: {channel_request.device_id} -> "
+                f"{channel_request.channel} (method: {method_used})"
+            )
+
+            # Notify via event stream
+            await state.event_queue.put(
+                {
+                    "event": "channel_changed",
+                    "device_id": channel_request.device_id,
+                    "channel": channel_request.channel,
+                    "method": str(method_used) if method_used else "unknown",
+                }
+            )
+
+            return {
+                "status": "success",
                 "device_id": channel_request.device_id,
                 "channel": channel_request.channel,
+                "method": str(method_used) if method_used else "unknown",
+                "available_methods": [str(m) for m in available_methods],
+                "message": "Channel changed successfully",
             }
-        )
 
-        return {
-            "status": "success",
-            "device_id": channel_request.device_id,
-            "channel": channel_request.channel,
-            "message": "Channel change command sent",
-        }
+        except Exception as e:
+            logger.error(f"TV control error for {channel_request.device_id}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"TV control error: {str(e)}"
+            )
 
     # Status endpoint
 
