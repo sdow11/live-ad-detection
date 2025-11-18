@@ -75,7 +75,7 @@ data/models/**
 !data/processed/.gitkeep
 !data/models/.gitkeep
 
-# Trained models (too large for git)
+# Trained models (too large for git) - but NOT code in packages/*/src/*/models/
 *.h5
 *.pb
 *.tflite
@@ -84,8 +84,11 @@ data/models/**
 *.pt
 *.ckpt
 *.safetensors
-models/
-checkpoints/
+/models/
+/checkpoints/
+packages/ml-training/models/
+packages/edge-device/models/
+# Note: packages/*/src/*/models/ directories contain CODE, not trained models
 
 # Logs
 *.log
