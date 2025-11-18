@@ -26,6 +26,9 @@ dependencies = [
     "fastapi>=0.104.0",   # Local fleet API
     "uvicorn[standard]>=0.24.0",  # ASGI server
     "aiosqlite>=0.19.0",  # Async SQLite for local storage
+    "sse-starlette>=1.8.0",  # Server-Sent Events for real-time updates
+    "httpx>=0.25.0",      # Async HTTP client for testing
+    "jinja2>=3.1.0",      # Template engine for web UI
 ]
 
 [project.optional-dependencies]
@@ -51,4 +54,4 @@ ad-detector = "ad_detection_edge.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ad_detection_edge = ["py.typed", "config/*.yaml"]
+ad_detection_edge = ["py.typed", "config/*.yaml", "local_fleet/templates/*.html", "local_fleet/static/**/*"]
