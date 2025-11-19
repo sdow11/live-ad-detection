@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ad_detection_common.models.device import DeviceStatus
 from cloud_api import auth, models, schemas
+from cloud_api.ab_testing import ab_testing_service, ExperimentType
+from cloud_api.alerts import alert_service, AlertSeverity, AlertType
 from cloud_api.analytics import AnalyticsService
 from cloud_api.cache import cache, cached
 from cloud_api.database import engine, get_db
@@ -25,6 +27,8 @@ from cloud_api.middleware import (
     RequestLoggingMiddleware,
 )
 from cloud_api.model_monitoring import model_monitoring
+from cloud_api.notifications import notification_service
+from cloud_api.webhooks import webhook_service, WebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -1617,6 +1621,279 @@ async def get_model_health(
     )
 
     return health
+
+
+# Webhook Management Endpoints
+
+
+@app.post("/api/v1/webhooks", status_code=status.HTTP_201_CREATED)
+async def create_webhook(
+    webhook_data: dict,  # {name, url, secret, events}
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Create webhook for organization."""
+    from cloud_api.webhooks import Webhook
+
+    webhook = Webhook(
+        organization_id=current_user.organization_id,
+        name=webhook_data["name"],
+        url=webhook_data["url"],
+        secret=webhook_data.get("secret"),
+        events=webhook_data.get("events", []),
+        enabled=1
+    )
+
+    db.add(webhook)
+    await db.commit()
+    await db.refresh(webhook)
+
+    return {
+        "id": webhook.id,
+        "name": webhook.name,
+        "url": webhook.url,
+        "events": webhook.events,
+        "enabled": bool(webhook.enabled)
+    }
+
+
+@app.get("/api/v1/webhooks")
+async def list_webhooks(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """List organization webhooks."""
+    from sqlalchemy import select
+    from cloud_api.webhooks import Webhook
+
+    result = await db.execute(
+        select(Webhook).where(Webhook.organization_id == current_user.organization_id)
+    )
+    webhooks = result.scalars().all()
+
+    return [
+        {
+            "id": w.id,
+            "name": w.name,
+            "url": w.url,
+            "events": w.events,
+            "enabled": bool(w.enabled),
+            "last_triggered_at": w.last_triggered_at,
+            "last_success_at": w.last_success_at
+        }
+        for w in webhooks
+    ]
+
+
+@app.get("/api/v1/webhooks/{webhook_id}/stats")
+async def get_webhook_stats(
+    webhook_id: int,
+    hours: int = 24,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Get webhook delivery statistics."""
+    stats = await webhook_service.get_delivery_stats(
+        session=db,
+        webhook_id=webhook_id,
+        hours=hours
+    )
+
+    return stats
+
+
+# A/B Testing Endpoints
+
+
+@app.post("/api/v1/experiments", status_code=status.HTTP_201_CREATED)
+async def create_experiment(
+    experiment_data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Create A/B test experiment."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can create experiments"
+        )
+
+    experiment = await ab_testing_service.create_experiment(
+        session=db,
+        name=experiment_data["name"],
+        variants=experiment_data["variants"],
+        traffic_allocation=experiment_data["traffic_allocation"],
+        primary_metric=experiment_data["primary_metric"],
+        experiment_type=ExperimentType(experiment_data.get("experiment_type", "model_comparison")),
+        description=experiment_data.get("description"),
+        secondary_metrics=experiment_data.get("secondary_metrics"),
+        organization_id=current_user.organization_id
+    )
+
+    return {
+        "id": experiment.id,
+        "name": experiment.name,
+        "status": experiment.status,
+        "variants": experiment.variants,
+        "traffic_allocation": experiment.traffic_allocation
+    }
+
+
+@app.post("/api/v1/experiments/{experiment_id}/start")
+async def start_experiment(
+    experiment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Start experiment."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can start experiments"
+        )
+
+    experiment = await ab_testing_service.start_experiment(db, experiment_id)
+
+    return {
+        "id": experiment.id,
+        "name": experiment.name,
+        "status": experiment.status,
+        "start_date": experiment.start_date
+    }
+
+
+@app.get("/api/v1/experiments/{experiment_id}/results")
+async def get_experiment_results(
+    experiment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Get experiment results."""
+    results = await ab_testing_service.get_experiment_results(db, experiment_id)
+    return results
+
+
+@app.post("/api/v1/experiments/{experiment_id}/conclude")
+async def conclude_experiment(
+    experiment_id: int,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Conclude experiment and select winner."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can conclude experiments"
+        )
+
+    experiment = await ab_testing_service.conclude_experiment(
+        db, experiment_id, force=force
+    )
+
+    return {
+        "id": experiment.id,
+        "name": experiment.name,
+        "status": experiment.status,
+        "winner_variant": experiment.winner_variant,
+        "results": experiment.results
+    }
+
+
+# Alert Management Endpoints
+
+
+@app.get("/api/v1/alerts")
+async def list_alerts(
+    severity: str | None = None,
+    alert_type: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """List active alerts for organization."""
+    alerts = await alert_service.get_active_alerts(
+        session=db,
+        organization_id=current_user.organization_id,
+        severity=AlertSeverity(severity) if severity else None,
+        alert_type=AlertType(alert_type) if alert_type else None
+    )
+
+    return [
+        {
+            "id": a.id,
+            "alert_type": a.alert_type,
+            "severity": a.severity,
+            "status": a.status,
+            "title": a.title,
+            "message": a.message,
+            "source_type": a.source_type,
+            "source_id": a.source_id,
+            "triggered_at": a.triggered_at,
+            "details": a.details
+        }
+        for a in alerts
+    ]
+
+
+@app.post("/api/v1/alerts/{alert_id}/acknowledge")
+async def acknowledge_alert(
+    alert_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Acknowledge alert."""
+    alert = await alert_service.acknowledge_alert(
+        session=db,
+        alert_id=alert_id,
+        user_id=current_user.id
+    )
+
+    return {
+        "id": alert.id,
+        "status": alert.status,
+        "acknowledged_at": alert.acknowledged_at
+    }
+
+
+@app.post("/api/v1/alerts/{alert_id}/resolve")
+async def resolve_alert(
+    alert_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Resolve alert."""
+    alert = await alert_service.resolve_alert(
+        session=db,
+        alert_id=alert_id,
+        user_id=current_user.id
+    )
+
+    return {
+        "id": alert.id,
+        "status": alert.status,
+        "resolved_at": alert.resolved_at
+    }
+
+
+@app.post("/api/v1/alerts/{alert_id}/mute")
+async def mute_alert(
+    alert_id: int,
+    duration_hours: int = 1,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Mute alert for specified duration."""
+    alert = await alert_service.mute_alert(
+        session=db,
+        alert_id=alert_id,
+        duration_hours=duration_hours
+    )
+
+    return {
+        "id": alert.id,
+        "status": alert.status,
+        "muted_until": alert.muted_until
+    }
 
 
 if __name__ == "__main__":
