@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ad_detection_common.models.device import DeviceStatus
 from cloud_api import auth, models, schemas
+from cloud_api.analytics import AnalyticsService
 from cloud_api.database import engine, get_db
 
 logger = logging.getLogger(__name__)
@@ -699,57 +700,179 @@ async def get_latest_firmware(db: AsyncSession = Depends(get_db)):
     return firmware
 
 
-# Analytics endpoints
+# Advanced Analytics endpoints
 
 
-@app.get("/api/v1/analytics/organization/{org_id}", response_model=schemas.OrganizationStats)
-async def get_organization_stats(org_id: int, db: AsyncSession = Depends(get_db)):
-    """Get organization-level statistics."""
-    # This would normally use more complex aggregation queries
-    # Simplified for demonstration
+@app.get("/api/v1/analytics/organizations/{org_id}")
+async def get_enhanced_organization_stats(
+    org_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get comprehensive organization-level statistics.
 
-    # Count locations
-    locations_result = await db.execute(
-        func.count(models.Location.id).where(
-            models.Location.organization_id == org_id
+    Requires authentication. Returns detailed metrics including video pipeline,
+    ad detection, and device health statistics.
+    """
+    # Verify organization access
+    await auth.verify_organization_access(current_user, org_id)
+
+    analytics = AnalyticsService(db)
+    stats = await analytics.get_organization_stats(org_id, start_date, end_date)
+
+    if not stats:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    return stats
+
+
+@app.get("/api/v1/analytics/locations/{location_id}")
+async def get_enhanced_location_stats(
+    location_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get comprehensive location-level statistics.
+
+    Requires authentication. User must have access to location's organization.
+    """
+    # Get location to check organization access
+    location = await db.get(models.Location, location_id)
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    await auth.verify_organization_access(current_user, location.organization_id)
+
+    analytics = AnalyticsService(db)
+    stats = await analytics.get_location_stats(location_id, start_date, end_date)
+
+    if not stats:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    return stats
+
+
+@app.get("/api/v1/analytics/devices/{device_id}")
+async def get_enhanced_device_stats(
+    device_id: str,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get comprehensive device-level statistics.
+
+    Requires authentication. User must have access to device's organization.
+    """
+    # Get device to check organization access
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == device_id
         )
     )
-    total_locations = locations_result.scalar()
+    device = result.first()
 
-    # Count devices
-    devices_result = await db.execute(
-        func.count(models.Device.id)
-        .select_from(models.Device)
-        .join(models.Location)
-        .where(models.Location.organization_id == org_id)
-    )
-    total_devices = devices_result.scalar()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
 
-    # Count online devices
-    online_result = await db.execute(
-        func.count(models.Device.id)
-        .select_from(models.Device)
-        .join(models.Location)
-        .where(
-            and_(
-                models.Location.organization_id == org_id,
-                models.Device.status == DeviceStatus.ONLINE,
+    location = await db.get(models.Location, device.location_id)
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    await auth.verify_organization_access(current_user, location.organization_id)
+
+    analytics = AnalyticsService(db)
+    stats = await analytics.get_device_stats(device_id, start_date, end_date)
+
+    if not stats:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    return stats
+
+
+@app.get("/api/v1/analytics/time-series")
+async def get_time_series_analytics(
+    metric: str,
+    organization_id: Optional[int] = None,
+    location_id: Optional[int] = None,
+    device_id: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    interval: str = "hour",
+    current_user: models.User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get time-series data for a specific metric.
+
+    Requires authentication. Supports metrics: ad_breaks, fps, latency.
+    Intervals: hour, day, week.
+    """
+    # Verify access based on scope
+    if organization_id:
+        await auth.verify_organization_access(current_user, organization_id)
+    elif location_id:
+        location = await db.get(models.Location, location_id)
+        if not location:
+            raise HTTPException(status_code=404, detail="Location not found")
+        await auth.verify_organization_access(current_user, location.organization_id)
+    elif device_id:
+        result = await db.execute(
+            models.Device.__table__.select().where(
+                models.Device.device_id == device_id
             )
         )
-    )
-    online_devices = online_result.scalar()
+        device = result.first()
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        location = await db.get(models.Location, device.location_id)
+        await auth.verify_organization_access(current_user, location.organization_id)
 
-    return schemas.OrganizationStats(
-        organization_id=org_id,
-        total_locations=total_locations or 0,
-        total_devices=total_devices or 0,
-        online_devices=online_devices or 0,
-        offline_devices=(total_devices or 0) - (online_devices or 0),
-        total_ad_breaks_today=0,  # Would aggregate from telemetry
-        total_ad_duration_seconds_today=0,
-        average_fps=None,
-        average_latency_ms=None,
+    analytics = AnalyticsService(db)
+    data = await analytics.get_time_series_data(
+        organization_id=organization_id,
+        location_id=location_id,
+        device_id=device_id,
+        metric=metric,
+        start_date=start_date,
+        end_date=end_date,
+        interval=interval
     )
+
+    return {
+        "metric": metric,
+        "interval": interval,
+        "data": data
+    }
+
+
+@app.get("/api/v1/analytics/top-locations")
+async def get_top_locations_by_ad_breaks(
+    org_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    limit: int = 10,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get top locations by ad break count.
+
+    Requires authentication. Returns top N locations with most ad breaks.
+    """
+    await auth.verify_organization_access(current_user, org_id)
+
+    analytics = AnalyticsService(db)
+    top_locations = await analytics.get_top_locations_by_ad_breaks(
+        org_id, start_date, end_date, limit
+    )
+
+    return {
+        "organization_id": org_id,
+        "top_locations": top_locations
+    }
 
 
 # ML Model Registry endpoints
