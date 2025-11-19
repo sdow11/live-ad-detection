@@ -4,6 +4,7 @@ SQLAlchemy models for multi-tenant device management.
 """
 
 from datetime import datetime
+from enum import Enum as PyEnum
 from typing import List, Optional
 
 from sqlalchemy import (
@@ -25,6 +26,17 @@ from sqlalchemy.sql import func
 from ad_detection_common.models.device import DeviceRole, DeviceStatus
 
 Base = declarative_base()
+
+
+class UpdateStatus(str, PyEnum):
+    """Firmware update status."""
+    PENDING = "pending"
+    DOWNLOADING = "downloading"
+    VERIFYING = "verifying"
+    INSTALLING = "installing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    ROLLED_BACK = "rolled_back"
 
 
 class Organization(Base):
@@ -222,20 +234,78 @@ class FirmwareVersion(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     version = Column(String(50), unique=True, nullable=False, index=True)
+    description = Column(Text)  # Version description
     release_notes = Column(Text)
-    file_url = Column(String(500))  # S3/CDN URL
-    file_size_bytes = Column(Integer)
-    checksum_sha256 = Column(String(64))
 
-    is_stable = Column(Boolean, default=False)
-    is_latest = Column(Boolean, default=False)
-    min_os_version = Column(String(50))
+    # File info
+    file_path = Column(String(500))  # Local file path
+    file_url = Column(String(500))  # S3/CDN URL (optional)
+    file_size = Column(Integer)  # Bytes
+    checksum = Column(String(64))  # SHA-256 checksum
 
-    released_at = Column(DateTime(timezone=True), nullable=False)
+    # Compatibility
+    min_device_version = Column(String(50))  # Minimum device version required
+    min_os_version = Column(String(50))  # Minimum OS version required
+
+    # Status flags
+    is_active = Column(Boolean, default=False)  # Available for distribution
+    is_stable = Column(Boolean, default=False)  # Marked as stable
+    is_latest = Column(Boolean, default=False)  # Latest version
+
+    # Timestamps
+    uploaded_at = Column(DateTime(timezone=True))
+    released_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Relationships
+    updates = relationship("FirmwareUpdate", back_populates="firmware_version", cascade="all, delete-orphan")
+
     def __repr__(self) -> str:
-        return f"<FirmwareVersion(version='{self.version}', stable={self.is_stable})>"
+        return f"<FirmwareVersion(version='{self.version}', active={self.is_active})>"
+
+
+class FirmwareUpdate(Base):
+    """Firmware update tracking model.
+
+    Tracks firmware update status for individual devices.
+    """
+
+    __tablename__ = "firmware_updates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id"), nullable=False, index=True)
+    firmware_version_id = Column(Integer, ForeignKey("firmware_versions.id"), nullable=False, index=True)
+
+    # Version info
+    current_version = Column(String(50))  # Device version before update
+    target_version = Column(String(50), nullable=False)  # Target firmware version
+
+    # Update status
+    status = Column(Enum(UpdateStatus), default=UpdateStatus.PENDING, nullable=False, index=True)
+    progress = Column(Integer, default=0)  # 0-100 percentage
+
+    # Scheduling
+    scheduled_for = Column(DateTime(timezone=True))  # When to apply update (None = manual)
+    is_canary = Column(Boolean, default=False)  # Is this a canary deployment
+
+    # Execution tracking
+    started_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+
+    # Error tracking
+    error_message = Column(Text)
+    retry_count = Column(Integer, default=0)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    device = relationship("Device")
+    firmware_version = relationship("FirmwareVersion", back_populates="updates")
+
+    def __repr__(self) -> str:
+        return f"<FirmwareUpdate(id={self.id}, device_id={self.device_id}, status={self.status})>"
 
 
 class User(Base):

@@ -18,6 +18,7 @@ from cloud_api import auth, models, schemas
 from cloud_api.analytics import AnalyticsService
 from cloud_api.cache import cache, cached
 from cloud_api.database import engine, get_db
+from cloud_api.firmware import firmware_service, RolloutStrategy
 from cloud_api.middleware import (
     PerformanceMonitoringMiddleware,
     RateLimitMiddleware,
@@ -1251,6 +1252,314 @@ async def deprecate_model_version(
     await db.commit()
 
     return {"status": "deprecated", "model_name": model_name, "version": version}
+
+
+# Firmware Management Endpoints
+
+
+@app.post("/api/v1/firmware/upload", status_code=status.HTTP_201_CREATED)
+async def upload_firmware(
+    version: str,
+    file_content: bytes,
+    description: str = "",
+    min_device_version: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Upload new firmware version (admin only)."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can upload firmware"
+        )
+
+    try:
+        firmware = await firmware_service.upload_firmware(
+            session=db,
+            version=version,
+            file_content=file_content,
+            description=description,
+            min_device_version=min_device_version
+        )
+
+        return {
+            "version": firmware.version,
+            "file_size": firmware.file_size,
+            "checksum": firmware.checksum,
+            "uploaded_at": firmware.uploaded_at,
+            "is_active": firmware.is_active
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.get("/api/v1/firmware/versions")
+async def list_firmware_versions(
+    active_only: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """List all firmware versions."""
+    from sqlalchemy import select
+
+    query = select(models.FirmwareVersion)
+
+    if active_only:
+        query = query.where(models.FirmwareVersion.is_active == True)
+
+    query = query.order_by(models.FirmwareVersion.uploaded_at.desc())
+
+    result = await db.execute(query)
+    versions = result.scalars().all()
+
+    return [
+        {
+            "id": v.id,
+            "version": v.version,
+            "description": v.description,
+            "file_size": v.file_size,
+            "checksum": v.checksum,
+            "is_active": v.is_active,
+            "is_stable": v.is_stable,
+            "is_latest": v.is_latest,
+            "uploaded_at": v.uploaded_at,
+            "min_device_version": v.min_device_version
+        }
+        for v in versions
+    ]
+
+
+@app.post("/api/v1/firmware/versions/{version}/activate")
+async def activate_firmware_version(
+    version: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Activate firmware version for distribution (admin only)."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can activate firmware"
+        )
+
+    try:
+        firmware = await firmware_service.activate_firmware(db, version)
+        return {
+            "status": "activated",
+            "version": firmware.version,
+            "is_active": firmware.is_active
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@app.post("/api/v1/firmware/versions/{version}/deactivate")
+async def deactivate_firmware_version(
+    version: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Deactivate firmware version (admin only)."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can deactivate firmware"
+        )
+
+    try:
+        firmware = await firmware_service.deactivate_firmware(db, version)
+        return {
+            "status": "deactivated",
+            "version": firmware.version,
+            "is_active": firmware.is_active
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@app.post("/api/v1/firmware/updates/create", status_code=status.HTTP_201_CREATED)
+async def create_firmware_update(
+    firmware_version: str,
+    device_ids: List[str] | None = None,
+    organization_id: int | None = None,
+    location_id: int | None = None,
+    strategy: RolloutStrategy = RolloutStrategy.STAGED,
+    canary_percentage: int = 10,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Create firmware update for devices (admin only)."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can create firmware updates"
+        )
+
+    # Non-superusers can only update devices in their organization
+    if not current_user.is_superuser and organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot create updates for other organizations"
+        )
+
+    try:
+        updates = await firmware_service.create_update(
+            session=db,
+            firmware_version=firmware_version,
+            device_ids=device_ids,
+            organization_id=organization_id,
+            location_id=location_id,
+            strategy=strategy,
+            canary_percentage=canary_percentage
+        )
+
+        return {
+            "created_updates": len(updates),
+            "firmware_version": firmware_version,
+            "strategy": strategy,
+            "updates": [
+                {
+                    "id": u.id,
+                    "device_id": u.device_id,
+                    "target_version": u.target_version,
+                    "status": u.status,
+                    "scheduled_for": u.scheduled_for,
+                    "is_canary": u.is_canary
+                }
+                for u in updates[:10]  # Return first 10 for preview
+            ]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.get("/api/v1/firmware/updates/pending")
+async def get_pending_firmware_update(
+    device_id: str,
+    db: AsyncSession = Depends(get_db),
+    device: models.Device = Depends(auth.verify_device_api_key)
+):
+    """Get pending firmware update for device (device endpoint)."""
+    # Verify device owns this device_id
+    if device.device_id != device_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot access other device's updates"
+        )
+
+    update = await firmware_service.get_pending_update(db, device_id)
+
+    if not update:
+        return {"has_update": False}
+
+    # Get firmware version details
+    from sqlalchemy import select
+    result = await db.execute(
+        select(models.FirmwareVersion).where(
+            models.FirmwareVersion.id == update.firmware_version_id
+        )
+    )
+    firmware = result.scalar_one()
+
+    return {
+        "has_update": True,
+        "update_id": update.id,
+        "target_version": update.target_version,
+        "file_path": firmware.file_path,
+        "file_url": firmware.file_url,
+        "file_size": firmware.file_size,
+        "checksum": firmware.checksum,
+        "is_canary": update.is_canary
+    }
+
+
+@app.post("/api/v1/firmware/updates/{update_id}/status")
+async def update_firmware_status(
+    update_id: int,
+    status_update: dict,  # {"status": "downloading", "progress": 50, "error_message": "..."}
+    db: AsyncSession = Depends(get_db),
+    device: models.Device = Depends(auth.verify_device_api_key)
+):
+    """Update firmware update status (device endpoint)."""
+    from sqlalchemy import select
+
+    # Get update and verify device ownership
+    result = await db.execute(
+        select(models.FirmwareUpdate).where(models.FirmwareUpdate.id == update_id)
+    )
+    update = result.scalar_one_or_none()
+
+    if not update:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Update not found")
+
+    if update.device_id != device.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot update other device's firmware status"
+        )
+
+    try:
+        updated = await firmware_service.update_status(
+            session=db,
+            update_id=update_id,
+            status=models.UpdateStatus(status_update.get("status")),
+            progress=status_update.get("progress"),
+            error_message=status_update.get("error_message")
+        )
+
+        return {
+            "status": "updated",
+            "update_id": updated.id,
+            "current_status": updated.status,
+            "progress": updated.progress
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.post("/api/v1/firmware/updates/{update_id}/rollback")
+async def rollback_firmware_update(
+    update_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Rollback firmware update (admin only)."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can rollback firmware updates"
+        )
+
+    try:
+        update = await firmware_service.rollback_update(db, update_id)
+        return {
+            "status": "rolled_back",
+            "update_id": update.id,
+            "current_status": update.status
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.get("/api/v1/firmware/updates/stats")
+async def get_firmware_update_stats(
+    firmware_version: str | None = None,
+    organization_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Get firmware update statistics."""
+    # Non-superusers can only view their organization's stats
+    if not current_user.is_superuser:
+        organization_id = current_user.organization_id
+
+    stats = await firmware_service.get_update_stats(
+        session=db,
+        firmware_version=firmware_version,
+        organization_id=organization_id
+    )
+
+    return stats
 
 
 if __name__ == "__main__":
