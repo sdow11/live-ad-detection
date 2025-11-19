@@ -146,6 +146,7 @@ temp/
 .tox/
 .nox/
 .coverage
+coverage.xml
 htmlcov/
 junit/
 test-results/
