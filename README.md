@@ -72,74 +72,78 @@ See [MONOREPO_STRUCTURE.md](./MONOREPO_STRUCTURE.md) for complete structure.
 
 ## Quick Start
 
+### 5-Minute Demo
+
+Try the complete system locally:
+
+```bash
+# Terminal 1: Start cloud API
+cd packages/cloud-api/examples
+python demo_cloud_api.py
+
+# Terminal 2: Start edge device
+cd packages/edge-device/examples
+python demo_complete_system.py --device-id rpi-001 --location-id 1
+
+# Browser: Open dashboard
+open http://localhost:8000/dashboard.html
+```
+
+See **[DEMO_GUIDE.md](DEMO_GUIDE.md)** for detailed demo instructions.
+
+### Production Deployment
+
+#### Cloud API (Docker)
+
+```bash
+cd deployment/docker
+cp .env.example .env
+nano .env  # Configure environment
+docker-compose up -d
+```
+
+#### Edge Device (Raspberry Pi)
+
+```bash
+# Automated installation
+sudo deployment/scripts/install-edge-device.sh
+
+# Configure
+sudo nano /etc/ad-detection/edge-device.env
+
+# Start service
+sudo systemctl enable ad-detection-edge
+sudo systemctl start ad-detection-edge
+```
+
+#### Coordinator (with WiFi AP)
+
+```bash
+# Set up WiFi Access Point for local fleet
+sudo deployment/scripts/setup-wifi-ap.sh
+
+# Enable coordinator service
+sudo systemctl enable ad-detection-coordinator
+```
+
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for comprehensive deployment guide.
+
 ### Prerequisites
 
-- **For Edge Development**:
-  - Raspberry Pi 4/5 (4GB+ RAM)
+- **For Demo**:
   - Python 3.11+
-  - OpenCV, TensorFlow Lite
-  - IR blaster hardware (optional)
+  - Docker (optional, for full cloud stack)
 
-- **For Cloud Development**:
-  - Python 3.11+
-  - Docker and Docker Compose
-  - Node.js 18+ (for frontend)
-  - PostgreSQL, Redis
+- **For Production Edge Device**:
+  - Raspberry Pi 5 (4GB+ RAM recommended)
+  - HDMI capture card (Auvidea B101 or compatible)
+  - USB WiFi adapter (for coordinator)
+  - IR blaster (optional)
 
-### Local Development Setup
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/yourusername/live-ad-detection.git
-   cd live-ad-detection
-   ```
-
-2. **Run setup script**:
-   ```bash
-   make setup
-   ```
-
-3. **Start local services** (PostgreSQL, Redis, etc.):
-   ```bash
-   docker-compose -f infra/docker-compose/docker-compose.dev.yml up -d
-   ```
-
-4. **Install dependencies**:
-   ```bash
-   make install
-   ```
-
-5. **Run tests**:
-   ```bash
-   make test-all
-   ```
-
-### Running Individual Components
-
-**Edge Device** (simulated):
-```bash
-cd packages/edge-device
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python src/main.py --config config/default.yaml
-```
-
-**Cloud API**:
-```bash
-cd packages/cloud-api
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn src.main:app --reload
-```
-
-**Frontend Dashboard**:
-```bash
-cd packages/frontend
-npm install
-npm run dev
-```
+- **For Production Cloud API**:
+  - Docker 24+ and Docker Compose 2.20+
+  - OR Kubernetes 1.27+
+  - PostgreSQL 14+, Redis 7+
 
 ## Development
 
@@ -322,9 +326,26 @@ Built with:
 
 ## Project Status
 
-🚧 **In Active Development** - Phase 0 (Foundation)
+🎉 **Functional Prototype Complete** - ~75-80% Complete
 
-Current focus: Setting up monorepo infrastructure and development environment.
+**What's Working:**
+- ✅ Complete video processing pipeline with ML ad detection
+- ✅ Picture-in-Picture composition with alternate content
+- ✅ TV control (IR, CEC, HTTP, Bluetooth)
+- ✅ Local fleet management (mDNS discovery, Raft coordinator election)
+- ✅ Cloud API with multi-tenant database
+- ✅ Edge-to-cloud telemetry reporting
+- ✅ Admin dashboard for fleet monitoring
+- ✅ End-to-end system demonstration
+- ✅ Production deployment infrastructure (Docker, systemd)
+- ✅ Automated installation scripts
+
+**Next Steps:**
+- 🚧 Trained ML models (currently using mock model)
+- 🚧 Cloud API authentication (JWT/API keys)
+- 📋 Advanced analytics and monitoring
+- 📋 OTA firmware updates
+- 📋 WebRTC streaming
 
 ---
 
