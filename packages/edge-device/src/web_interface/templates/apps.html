@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block title %}Apps - Ad Detection Cluster{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 20px;">Home Screen Apps</h1>
+
+<!-- Apps Grid -->
+<div class="grid grid-4">
+    {% for app in installed_apps %}
+    <div class="card">
+        <div style="text-align: center; padding: 20px 0;">
+            <div style="font-size: 72px; margin-bottom: 15px;">{{ app.icon }}</div>
+            <h3 style="margin-bottom: 5px;">{{ app.name }}</h3>
+            <p style="color: #999; font-size: 12px; margin-bottom: 10px;">v{{ app.version }}</p>
+
+            <p style="color: #666; font-size: 14px; margin-bottom: 15px; min-height: 40px;">
+                {{ app.description }}
+            </p>
+
+            <!-- Status Badge -->
+            <div style="margin-bottom: 15px;">
+                {% if app.status == 'running' %}
+                <span class="status-badge">Running</span>
+                {% elif app.status == 'stopped' %}
+                <span class="status-badge warning">Stopped</span>
+                {% elif app.status == 'error' %}
+                <span class="status-badge error">Error</span>
+                {% else %}
+                <span class="status-badge warning">{{ app.status }}</span>
+                {% endif %}
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                {% if app.status == 'running' %}
+                <button class="btn btn-danger btn-sm" onclick="stopApp('{{ app.app_id }}')">
+                    Stop
+                </button>
+                {% else %}
+                <button class="btn btn-success btn-sm" onclick="launchApp('{{ app.app_id }}')">
+                    Launch
+                </button>
+                {% endif %}
+                <button class="btn btn-sm" onclick="showAppInfo('{{ app.app_id }}')">
+                    Info
+                </button>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 60px;">
+        <h3 style="color: #999;">No apps installed</h3>
+        <p style="color: #666; margin-top: 10px;">Apps will appear here once they are registered</p>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- App Categories -->
+<div class="card">
+    <h2>Available Categories</h2>
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-top: 15px;">
+        <div style="padding: 10px 20px; background: #f0f0f0; border-radius: 5px;">
+            <strong>📺 Video</strong> - Video playback and streaming
+        </div>
+        <div style="padding: 10px 20px; background: #f0f0f0; border-radius: 5px;">
+            <strong>🎮 Games</strong> - Interactive games and entertainment
+        </div>
+        <div style="padding: 10px 20px; background: #f0f0f0; border-radius: 5px;">
+            <strong>🎬 Entertainment</strong> - General entertainment apps
+        </div>
+        <div style="padding: 10px 20px; background: #f0f0f0; border-radius: 5px;">
+            <strong>🔧 Utilities</strong> - System utilities and tools
+        </div>
+    </div>
+</div>
+
+<!-- Active App Info -->
+{% if active_app_id %}
+<div class="card">
+    <h2>Currently Active App</h2>
+    {% for app in installed_apps %}
+        {% if app.app_id == active_app_id %}
+        <div style="display: flex; align-items: center; gap: 20px; padding: 20px; background: #f8f9fa; border-radius: 5px;">
+            <div style="font-size: 48px;">{{ app.icon }}</div>
+            <div style="flex: 1;">
+                <h3 style="margin-bottom: 5px;">{{ app.name }}</h3>
+                <p style="color: #666;">{{ app.description }}</p>
+            </div>
+            <button class="btn btn-danger" onclick="stopApp('{{ app.app_id }}')">Stop App</button>
+        </div>
+        {% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Usage Instructions -->
+<div class="card">
+    <h2>How to Use Home Screen Apps</h2>
+    <div style="padding: 15px; background: #f8f9fa; border-radius: 5px;">
+        <h3 style="font-size: 16px; margin-bottom: 10px;">📱 On the Device</h3>
+        <p style="color: #666; margin-bottom: 15px;">
+            Apps can be launched directly from the home screen on the TV using the remote control.
+            Use arrow keys to navigate and ENTER to launch an app.
+        </p>
+
+        <h3 style="font-size: 16px; margin-bottom: 10px;">🌐 From Web Interface</h3>
+        <p style="color: #666; margin-bottom: 15px;">
+            Use the buttons above to remotely launch or stop apps on this device.
+            Only one app can be active at a time.
+        </p>
+
+        <h3 style="font-size: 16px; margin-bottom: 10px;">⚙️ App Development</h3>
+        <p style="color: #666;">
+            New apps can be added by extending the BaseApp class and registering them with the AppRegistry.
+            See the developer documentation for more information.
+        </p>
+    </div>
+</div>
+
+<!-- App Info Modal -->
+<div class="modal" id="appInfoModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>App Information</h2>
+        </div>
+        <div class="modal-body">
+            <div id="appInfoContent">
+                <!-- App info will be loaded here -->
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn" onclick="hideModal('appInfoModal')">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function launchApp(appId) {
+        if (!confirm(`Launch ${appId}?`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/apps/${appId}/launch`, {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showAlert('App launched successfully', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showAlert('Failed to launch app: ' + data.detail, 'error');
+            }
+        } catch (error) {
+            showAlert('Error: ' + error.message, 'error');
+        }
+    }
+
+    async function stopApp(appId) {
+        if (!confirm(`Stop ${appId}?`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/apps/${appId}/stop`, {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showAlert('App stopped successfully', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showAlert('Failed to stop app: ' + data.detail, 'error');
+            }
+        } catch (error) {
+            showAlert('Error: ' + error.message, 'error');
+        }
+    }
+
+    async function showAppInfo(appId) {
+        try {
+            const response = await fetch(`/api/apps/${appId}`);
+            const app = await response.json();
+
+            const content = `
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <div style="font-size: 72px; margin-bottom: 15px;">${app.icon}</div>
+                    <h3>${app.name}</h3>
+                    <p style="color: #999;">v${app.version}</p>
+                </div>
+
+                <table style="margin-top: 20px;">
+                    <tr>
+                        <th style="width: 40%;">Property</th>
+                        <th>Value</th>
+                    </tr>
+                    <tr>
+                        <td>App ID</td>
+                        <td><code>${app.app_id}</code></td>
+                    </tr>
+                    <tr>
+                        <td>Category</td>
+                        <td>${app.category}</td>
+                    </tr>
+                    <tr>
+                        <td>Status</td>
+                        <td><span class="status-badge">${app.status}</span></td>
+                    </tr>
+                    <tr>
+                        <td>Description</td>
+                        <td>${app.description}</td>
+                    </tr>
+                    ${app.error_message ? `
+                    <tr>
+                        <td>Error</td>
+                        <td style="color: red;">${app.error_message}</td>
+                    </tr>
+                    ` : ''}
+                </table>
+            `;
+
+            document.getElementById('appInfoContent').innerHTML = content;
+            showModal('appInfoModal');
+
+        } catch (error) {
+            showAlert('Error loading app info: ' + error.message, 'error');
+        }
+    }
+
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+        fetch('/api/apps/active')
+            .then(r => r.json())
+            .then(data => {
+                console.log('Active app status:', data);
+            });
+    }, 30000);
+</script>
+{% endblock %}

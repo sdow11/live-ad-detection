@@ -19,6 +19,10 @@ from fastapi.templating import Jinja2Templates
 from pip_content import ContentType, pip_content_manager, ContentSchedule
 from local_fleet.coordinator import coordinator
 from local_fleet.registry import device_registry
+from home_screen import AppRegistry
+
+# Create app registry instance
+app_registry = AppRegistry()
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +100,30 @@ async def pip_content_page(request: Request):
         "content_sources": [s.to_dict() for s in content_sources],
         "device_configs": device_configs,
         "content_types": [ct.value for ct in ContentType]
+    })
+
+
+@app.get("/apps", response_class=HTMLResponse)
+async def apps_page(request: Request):
+    """Apps management page."""
+    installed_apps = app_registry.list_apps()
+    active_app = app_registry.get_active_app()
+
+    return templates.TemplateResponse("apps.html", {
+        "request": request,
+        "installed_apps": [
+            {
+                "app_id": app.app_id,
+                "name": app.name,
+                "description": app.description,
+                "icon": app.icon,
+                "category": app.category.value,
+                "version": app.version,
+                "status": app.status.value
+            }
+            for app in installed_apps
+        ],
+        "active_app_id": active_app.app_id if active_app else None
     })
 
 
@@ -307,6 +335,97 @@ async def sync_content_to_cluster():
         "status": "success",
         "message": "Content sync initiated"
     })
+
+
+#
+# API Endpoints - App Management
+#
+
+@app.get("/api/apps")
+async def list_apps():
+    """List all installed apps."""
+    apps = app_registry.list_apps()
+
+    return JSONResponse({
+        "apps": [
+            {
+                "app_id": app.app_id,
+                "name": app.name,
+                "description": app.description,
+                "icon": app.icon,
+                "category": app.category.value,
+                "version": app.version,
+                "status": app.status.value
+            }
+            for app in apps
+        ]
+    })
+
+
+@app.get("/api/apps/{app_id}")
+async def get_app_info(app_id: str):
+    """Get app information."""
+    app = app_registry.get_app(app_id)
+
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+
+    return JSONResponse({
+        "app_id": app.app_id,
+        "name": app.name,
+        "description": app.description,
+        "icon": app.icon,
+        "category": app.category.value,
+        "version": app.version,
+        "status": app.status.value,
+        "error_message": app.error_message
+    })
+
+
+@app.post("/api/apps/{app_id}/launch")
+async def launch_app(app_id: str):
+    """Launch an application."""
+    success = await app_registry.launch_app(app_id)
+
+    if success:
+        return JSONResponse({
+            "status": "success",
+            "message": f"App {app_id} launched"
+        })
+    else:
+        raise HTTPException(status_code=500, detail="Failed to launch app")
+
+
+@app.post("/api/apps/{app_id}/stop")
+async def stop_app(app_id: str):
+    """Stop an application."""
+    success = await app_registry.stop_app(app_id)
+
+    if success:
+        return JSONResponse({
+            "status": "success",
+            "message": f"App {app_id} stopped"
+        })
+    else:
+        raise HTTPException(status_code=500, detail="Failed to stop app")
+
+
+@app.get("/api/apps/active")
+async def get_active_app():
+    """Get currently active app."""
+    active_app = app_registry.get_active_app()
+
+    if active_app:
+        return JSONResponse({
+            "has_active_app": True,
+            "app_id": active_app.app_id,
+            "name": active_app.name,
+            "status": active_app.status.value
+        })
+    else:
+        return JSONResponse({
+            "has_active_app": False
+        })
 
 
 #
