@@ -16,7 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ad_detection_common.models.device import DeviceStatus
 from cloud_api import auth, models, schemas
 from cloud_api.analytics import AnalyticsService
+from cloud_api.cache import cache, cached
 from cloud_api.database import engine, get_db
+from cloud_api.middleware import (
+    PerformanceMonitoringMiddleware,
+    RateLimitMiddleware,
+    RequestLoggingMiddleware,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +33,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Startup
     logger.info("Starting Cloud Fleet Management API")
 
+    # Connect to Redis cache
+    await cache.connect()
+
     # Create tables (in production, use Alembic migrations)
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
@@ -35,6 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     # Shutdown
     logger.info("Shutting down Cloud Fleet Management API")
+    await cache.disconnect()
 
 
 # Create FastAPI app
@@ -53,6 +63,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Performance monitoring middleware
+app.add_middleware(PerformanceMonitoringMiddleware)
+
+# Rate limiting middleware
+app.add_middleware(RateLimitMiddleware, enabled=True)
+
+# Request logging middleware
+app.add_middleware(RequestLoggingMiddleware)
 
 
 # Health check endpoint
