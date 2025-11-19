@@ -1,0 +1,39 @@
+[Unit]
+Description=Ad Detection Home Screen Launcher
+After=network.target graphical.target sound.target
+Wants=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/ad-detection
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/pi/.Xauthority"
+Environment="PYTHONPATH=/opt/ad-detection/packages/edge-device/src"
+ExecStartPre=/bin/sleep 5
+ExecStart=/opt/ad-detection/venv/bin/python -m home_screen.launcher
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ad-detection-homescreen
+
+# Watchdog configuration
+WatchdogSec=60
+NotifyAccess=main
+
+# Resource limits
+MemoryLimit=512M
+CPUQuota=80%
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/ad-detection /tmp
+
+[Install]
+WantedBy=graphical.target

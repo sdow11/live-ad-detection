@@ -18,6 +18,7 @@ from home_screen.apps.trivia_app import TriviaApp
 from home_screen.apps.karaoke_app import KaraokeApp
 from home_screen.apps.web_browser_app import WebBrowserApp
 from home_screen.apps.video_channels_app import VideoChannelsApp
+from system import boot_config, shutdown_handler, WatchdogNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class HomeScreenLauncher:
         self.running = False
         self.selected_app_index = 0
         self.clock = None
+        self.watchdog = WatchdogNotifier()
 
         # Display settings
         self.screen_width = 1920
@@ -51,6 +53,13 @@ class HomeScreenLauncher:
         """Start the launcher."""
         try:
             logger.info("Starting home screen launcher")
+
+            # Setup signal handlers for graceful shutdown
+            shutdown_handler.setup_signal_handlers()
+            shutdown_handler.register_callback(self.stop)
+
+            # Start watchdog notifier
+            await self.watchdog.start()
 
             # Initialize pygame
             pygame.init()
@@ -73,6 +82,26 @@ class HomeScreenLauncher:
             # Register all available apps
             self._register_apps()
 
+            # Check for default app to auto-launch
+            default_app_id = boot_config.get_default_app()
+            if default_app_id:
+                logger.info(f"Default app configured: {default_app_id}")
+                delay = boot_config.get_auto_launch_delay()
+                logger.info(f"Auto-launching in {delay} seconds...")
+                await asyncio.sleep(delay)
+
+                # Try to launch default app
+                success = await self.registry.launch_app(default_app_id)
+                if success:
+                    logger.info(f"Auto-launched default app: {default_app_id}")
+                    # Wait for app to finish
+                    app = self.registry.get_app(default_app_id)
+                    while app and app.status == AppStatus.RUNNING:
+                        await asyncio.sleep(0.5)
+                    logger.info(f"Default app exited, showing launcher")
+                else:
+                    logger.error(f"Failed to auto-launch default app: {default_app_id}")
+
             # Start main loop
             self.running = True
             await self._main_loop()
@@ -86,9 +115,26 @@ class HomeScreenLauncher:
         logger.info("Stopping home screen launcher")
         self.running = False
 
+        # Save last active app
+        active_app = self.registry.get_active_app()
+        if active_app:
+            boot_config.set_last_app(active_app.app_id)
+            logger.info(f"Saved last app: {active_app.app_id}")
+
+        # Stop watchdog
+        await self.watchdog.stop()
+
+        # Stop all running apps
+        for app in self.registry.list_apps():
+            if app.status == AppStatus.RUNNING:
+                logger.info(f"Stopping app: {app.name}")
+                await self.registry.stop_app(app.app_id)
+
         if self.screen:
             pygame.quit()
             self.screen = None
+
+        logger.info("Home screen launcher stopped")
 
     def _register_apps(self) -> None:
         """Register all available applications."""
