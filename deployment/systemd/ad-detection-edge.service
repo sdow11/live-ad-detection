@@ -1,0 +1,51 @@
+[Unit]
+Description=Live TV Ad Detection Edge Device
+Documentation=https://github.com/your-org/live-ad-detection
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/ad-detection
+Environment="PYTHONPATH=/opt/ad-detection/packages/edge-device/src:/opt/ad-detection/packages/shared/python-common/src"
+Environment="DEVICE_ID=rpi-001"
+Environment="LOCATION_ID=1"
+Environment="CLOUD_API_URL=https://api.example.com"
+Environment="AD_RESPONSE_STRATEGY=pip_only"
+Environment="VIDEO_MODE=720p30"
+
+# Command to run
+ExecStart=/usr/bin/python3 /opt/ad-detection/packages/edge-device/examples/demo_complete_system.py \
+  --device-id ${DEVICE_ID} \
+  --location-id ${LOCATION_ID} \
+  --cloud-api-url ${CLOUD_API_URL} \
+  --strategy ${AD_RESPONSE_STRATEGY} \
+  --video-mode ${VIDEO_MODE} \
+  --role worker
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Resource limits
+MemoryLimit=2G
+CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ad-detection-edge
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Allow access to video devices
+SupplementaryGroups=video gpio input
+
+[Install]
+WantedBy=multi-user.target

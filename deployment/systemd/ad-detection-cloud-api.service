@@ -1,0 +1,48 @@
+[Unit]
+Description=Live TV Ad Detection Cloud API
+Documentation=https://github.com/your-org/live-ad-detection
+After=network-online.target postgresql.service redis.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ad-detection
+Group=ad-detection
+WorkingDirectory=/opt/ad-detection-cloud
+Environment="PYTHONPATH=/opt/ad-detection-cloud/packages/cloud-api/src:/opt/ad-detection-cloud/packages/shared/python-common/src"
+Environment="DATABASE_URL=postgresql+asyncpg://addetection:password@localhost/addetection"
+Environment="REDIS_URL=redis://localhost:6379/0"
+Environment="API_HOST=0.0.0.0"
+Environment="API_PORT=8000"
+Environment="LOG_LEVEL=info"
+
+# Command to run
+ExecStart=/usr/bin/python3 -m uvicorn cloud_api.main:app \
+  --host ${API_HOST} \
+  --port ${API_PORT} \
+  --log-level ${LOG_LEVEL} \
+  --workers 4 \
+  --loop uvloop
+
+# Restart policy
+Restart=always
+RestartSec=5
+
+# Resource limits
+MemoryLimit=4G
+CPUQuota=400%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ad-detection-cloud-api
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/var/log/ad-detection
+
+[Install]
+WantedBy=multi-user.target

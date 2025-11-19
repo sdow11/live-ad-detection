@@ -1,0 +1,52 @@
+[Unit]
+Description=Live TV Ad Detection Coordinator
+Documentation=https://github.com/your-org/live-ad-detection
+After=network-online.target hostapd.service dnsmasq.service
+Wants=network-online.target
+Requires=hostapd.service dnsmasq.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/ad-detection
+Environment="PYTHONPATH=/opt/ad-detection/packages/edge-device/src:/opt/ad-detection/packages/shared/python-common/src"
+Environment="DEVICE_ID=rpi-coordinator-001"
+Environment="LOCATION_ID=1"
+Environment="CLOUD_API_URL=https://api.example.com"
+Environment="AD_RESPONSE_STRATEGY=channel_change"
+Environment="VIDEO_MODE=1080p60"
+
+# Command to run
+ExecStart=/usr/bin/python3 /opt/ad-detection/packages/edge-device/examples/demo_complete_system.py \
+  --device-id ${DEVICE_ID} \
+  --location-id ${LOCATION_ID} \
+  --cloud-api-url ${CLOUD_API_URL} \
+  --strategy ${AD_RESPONSE_STRATEGY} \
+  --video-mode ${VIDEO_MODE} \
+  --role coordinator
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Resource limits
+MemoryLimit=4G
+CPUQuota=400%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ad-detection-coordinator
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Allow access to video and network devices
+SupplementaryGroups=video gpio input netdev
+
+[Install]
+WantedBy=multi-user.target
