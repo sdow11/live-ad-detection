@@ -21,6 +21,7 @@ from local_fleet.coordinator import coordinator
 from local_fleet.registry import device_registry
 from home_screen import AppRegistry
 from system import system_monitor, health_checker, diagnostics_collector
+from system.prometheus_exporter import prometheus_exporter
 
 # Create app registry instance
 app_registry = AppRegistry()
@@ -43,6 +44,51 @@ templates = Jinja2Templates(directory=str(template_dir))
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+#
+# Startup & Shutdown Events
+#
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize monitoring and services on startup."""
+    logger.info("Starting web interface services...")
+
+    # Start system monitoring
+    await system_monitor.start(interval=5)
+    logger.info("System monitoring started")
+
+    # Start health checking
+    await health_checker.start(interval=30)
+    logger.info("Health checking started")
+
+    # Load audio settings
+    from system import audio_manager
+    audio_manager.load_settings()
+    logger.info("Audio settings loaded")
+
+    # Load configuration
+    from system import config_manager
+    logger.info("Configuration manager initialized")
+
+    logger.info("Web interface services started successfully")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown."""
+    logger.info("Shutting down web interface services...")
+
+    # Stop monitoring services
+    await system_monitor.stop()
+    await health_checker.stop()
+
+    # Save audio settings
+    from system import audio_manager
+    audio_manager.save_settings()
+
+    logger.info("Web interface services stopped")
 
 
 #
@@ -440,6 +486,19 @@ async def health_check():
         "status": "healthy",
         "is_leader": coordinator.is_leader()
     })
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint.
+
+    Exports system metrics in Prometheus text format for scraping.
+    Compatible with Prometheus, Grafana, and other monitoring tools.
+    """
+    from fastapi.responses import PlainTextResponse
+
+    metrics_output = prometheus_exporter.export_all_metrics()
+    return PlainTextResponse(content=metrics_output, media_type="text/plain; version=0.0.4")
 
 
 #

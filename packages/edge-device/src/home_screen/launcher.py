@@ -18,7 +18,16 @@ from home_screen.apps.trivia_app import TriviaApp
 from home_screen.apps.karaoke_app import KaraokeApp
 from home_screen.apps.web_browser_app import WebBrowserApp
 from home_screen.apps.video_channels_app import VideoChannelsApp
-from system import boot_config, shutdown_handler, WatchdogNotifier
+from system import (
+    boot_config,
+    shutdown_handler,
+    WatchdogNotifier,
+    system_monitor,
+    health_checker,
+    diagnostics_collector,
+    audio_manager,
+    remote_control,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +66,21 @@ class HomeScreenLauncher:
             # Setup signal handlers for graceful shutdown
             shutdown_handler.setup_signal_handlers()
             shutdown_handler.register_callback(self.stop)
+
+            # Start monitoring services
+            await system_monitor.start(interval=5)
+            logger.info("System monitoring started")
+
+            await health_checker.start(interval=30)
+            logger.info("Health checking started")
+
+            # Load audio settings
+            audio_manager.load_settings()
+            logger.info("Audio settings loaded")
+
+            # Start remote control handlers
+            await remote_control.start(enable_ir=True, enable_cec=True, enable_bluetooth=False)
+            logger.info("Remote control handlers started")
 
             # Start watchdog notifier
             await self.watchdog.start()
@@ -130,6 +154,19 @@ class HomeScreenLauncher:
                 logger.info(f"Stopping app: {app.name}")
                 await self.registry.stop_app(app.app_id)
 
+        # Stop remote control
+        await remote_control.stop()
+        logger.info("Remote control stopped")
+
+        # Save audio settings
+        audio_manager.save_settings()
+        logger.info("Audio settings saved")
+
+        # Stop monitoring services
+        await system_monitor.stop()
+        await health_checker.stop()
+        logger.info("Monitoring services stopped")
+
         if self.screen:
             pygame.quit()
             self.screen = None
@@ -149,6 +186,9 @@ class HomeScreenLauncher:
 
         for app in apps:
             self.registry.register_app(app)
+            # Register with monitoring system
+            system_monitor.register_app(app.app_id)
+            system_monitor.update_app_status(app.app_id, "stopped")
 
         logger.info(f"Registered {len(apps)} applications")
 
@@ -340,23 +380,39 @@ class HomeScreenLauncher:
             # Hide launcher window
             pygame.display.iconify()
 
+            # Update app status in monitoring
+            system_monitor.update_app_status(app.app_id, "starting")
+
             # Launch app through registry
             success = await self.registry.launch_app(app.app_id)
 
             if success:
                 logger.info(f"App launched successfully: {app.name}")
 
+                # Update app status
+                system_monitor.update_app_status(app.app_id, "running")
+
                 # Wait for app to finish
                 while app.status == AppStatus.RUNNING:
                     await asyncio.sleep(0.5)
 
                 logger.info(f"App exited: {app.name}")
+                system_monitor.update_app_status(app.app_id, "stopped")
 
             else:
                 logger.error(f"Failed to launch app: {app.name}")
+                system_monitor.update_app_status(app.app_id, "error")
+                diagnostics_collector.report_error(
+                    app.app_id,
+                    Exception(f"Failed to launch {app.name}"),
+                    severity="error"
+                )
 
         except Exception as e:
             logger.error(f"Error launching app {app.name}: {e}", exc_info=True)
+            system_monitor.update_app_status(app.app_id, "error")
+            system_monitor.record_app_crash(app.app_id)
+            diagnostics_collector.report_crash(app.app_id, e)
 
         finally:
             # Restore launcher window

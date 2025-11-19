@@ -1,0 +1,41 @@
+# Testing Dependencies
+
+# Core testing framework
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+pytest-timeout==2.2.0
+
+# HTTP/API testing
+pytest-httpx==0.26.0
+httpx==0.25.2
+
+# Database testing
+pytest-postgresql==5.0.0
+
+# Mocking and fixtures
+faker==20.1.0
+factory-boy==3.3.0
+freezegun==1.4.0
+
+# Code quality
+pytest-flake8==1.1.1
+pytest-black==0.3.12
+pytest-mypy==0.10.3
+
+# Coverage reporting
+coverage[toml]==7.3.4
+
+# Docker testing
+pytest-docker==2.0.1
+docker==7.0.0
+
+# Performance testing
+pytest-benchmark==4.0.0
+
+# Snapshot testing
+pytest-snapshot==0.9.0
+
+# Additional utilities
+responses==0.24.1
