@@ -1,0 +1,475 @@
+"""Main Cloud API application.
+
+FastAPI application for remote fleet management.
+"""
+
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+from typing import AsyncGenerator, List
+
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import and_, func
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+
+from ad_detection_common.models.device import DeviceStatus
+from cloud_api import models, schemas
+
+logger = logging.getLogger(__name__)
+
+# Database setup (async SQLAlchemy)
+DATABASE_URL = "postgresql+asyncpg://livetv:password@localhost/livetv_cloud"
+
+engine = create_async_engine(DATABASE_URL, echo=True, future=True)
+async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async def get_db() -> AsyncGenerator:
+    """Dependency for database sessions."""
+    async with async_session() as session:
+        yield session
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator:
+    """Application lifespan manager."""
+    # Startup
+    logger.info("Starting Cloud Fleet Management API")
+
+    # Create tables (in production, use Alembic migrations)
+    async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.create_all)
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down Cloud Fleet Management API")
+
+
+# Create FastAPI app
+app = FastAPI(
+    title="Live TV Ad Detection - Cloud API",
+    description="Remote fleet management API for edge devices",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Health check endpoint
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+
+# Organization endpoints
+
+
+@app.post("/api/v1/organizations", response_model=schemas.Organization, status_code=status.HTTP_201_CREATED)
+async def create_organization(
+    org: schemas.OrganizationCreate, db: AsyncSession = Depends(get_db)
+):
+    """Create a new organization."""
+    db_org = models.Organization(**org.model_dump())
+    db.add(db_org)
+    await db.commit()
+    await db.refresh(db_org)
+    return db_org
+
+
+@app.get("/api/v1/organizations", response_model=List[schemas.Organization])
+async def list_organizations(
+    skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)
+):
+    """List all organizations."""
+    result = await db.execute(
+        models.Organization.__table__.select().offset(skip).limit(limit)
+    )
+    return result.all()
+
+
+@app.get("/api/v1/organizations/{org_id}", response_model=schemas.Organization)
+async def get_organization(org_id: int, db: AsyncSession = Depends(get_db)):
+    """Get organization by ID."""
+    result = await db.get(models.Organization, org_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return result
+
+
+# Location endpoints
+
+
+@app.post("/api/v1/locations", response_model=schemas.Location, status_code=status.HTTP_201_CREATED)
+async def create_location(
+    location: schemas.LocationCreate, db: AsyncSession = Depends(get_db)
+):
+    """Create a new location."""
+    db_location = models.Location(**location.model_dump())
+    db.add(db_location)
+    await db.commit()
+    await db.refresh(db_location)
+    return db_location
+
+
+@app.get("/api/v1/locations", response_model=List[schemas.Location])
+async def list_locations(
+    organization_id: int | None = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    """List locations, optionally filtered by organization."""
+    query = models.Location.__table__.select()
+
+    if organization_id:
+        query = query.where(models.Location.organization_id == organization_id)
+
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    return result.all()
+
+
+# Device endpoints
+
+
+@app.post("/api/v1/devices/register", response_model=schemas.Device, status_code=status.HTTP_201_CREATED)
+async def register_device(
+    device: schemas.DeviceRegister, db: AsyncSession = Depends(get_db)
+):
+    """Register a new device or update existing."""
+    # Check if device already exists
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == device.device_id
+        )
+    )
+    existing = result.first()
+
+    if existing:
+        # Update existing device
+        for key, value in device.model_dump(exclude_unset=True).items():
+            setattr(existing, key, value)
+
+        existing.last_seen = datetime.utcnow()
+        existing.status = DeviceStatus.ONLINE
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+    else:
+        # Create new device
+        db_device = models.Device(**device.model_dump())
+        db_device.status = DeviceStatus.ONLINE
+        db_device.last_seen = datetime.utcnow()
+        db.add(db_device)
+        await db.commit()
+        await db.refresh(db_device)
+        return db_device
+
+
+@app.post("/api/v1/devices/heartbeat")
+async def device_heartbeat(
+    heartbeat: schemas.DeviceHeartbeat, db: AsyncSession = Depends(get_db)
+):
+    """Record device heartbeat."""
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == heartbeat.device_id
+        )
+    )
+    device = result.first()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Update heartbeat
+    device.last_heartbeat = datetime.utcnow()
+    device.last_seen = datetime.utcnow()
+    device.status = heartbeat.status
+
+    if heartbeat.ip_address:
+        device.ip_address = heartbeat.ip_address
+
+    await db.commit()
+
+    return {"status": "acknowledged", "device_id": heartbeat.device_id}
+
+
+@app.get("/api/v1/devices", response_model=List[schemas.Device])
+async def list_devices(
+    location_id: int | None = None,
+    status: DeviceStatus | None = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    """List devices with optional filters."""
+    query = models.Device.__table__.select()
+
+    if location_id:
+        query = query.where(models.Device.location_id == location_id)
+
+    if status:
+        query = query.where(models.Device.status == status)
+
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    return result.all()
+
+
+@app.get("/api/v1/devices/{device_id}", response_model=schemas.Device)
+async def get_device(device_id: str, db: AsyncSession = Depends(get_db)):
+    """Get device by device_id."""
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == device_id
+        )
+    )
+    device = result.first()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    return device
+
+
+# Health reporting endpoints
+
+
+@app.post("/api/v1/health", status_code=status.HTTP_201_CREATED)
+async def submit_device_health(
+    health: schemas.DeviceHealthCreate, db: AsyncSession = Depends(get_db)
+):
+    """Submit device health data."""
+    # Get device by device_id
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == health.device_id
+        )
+    )
+    device = result.first()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Create health record
+    db_health = models.DeviceHealth(
+        device_id=device.id, **health.model_dump(exclude={"device_id"})
+    )
+    db.add(db_health)
+    await db.commit()
+
+    return {"status": "recorded"}
+
+
+@app.get("/api/v1/devices/{device_id}/health", response_model=List[schemas.DeviceHealthResponse])
+async def get_device_health(
+    device_id: str,
+    hours: int = 24,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get device health history."""
+    # Get device
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == device_id
+        )
+    )
+    device = result.first()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Get health records
+    since = datetime.utcnow() - timedelta(hours=hours)
+
+    result = await db.execute(
+        models.DeviceHealth.__table__.select()
+        .where(
+            and_(
+                models.DeviceHealth.device_id == device.id,
+                models.DeviceHealth.recorded_at >= since,
+            )
+        )
+        .order_by(models.DeviceHealth.recorded_at.desc())
+    )
+
+    return result.all()
+
+
+# Telemetry endpoints
+
+
+@app.post("/api/v1/telemetry", status_code=status.HTTP_201_CREATED)
+async def submit_telemetry(
+    telemetry: schemas.TelemetryCreate, db: AsyncSession = Depends(get_db)
+):
+    """Submit device telemetry data."""
+    # Get device
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == telemetry.device_id
+        )
+    )
+    device = result.first()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Create telemetry record
+    db_telemetry = models.Telemetry(
+        device_id=device.id, **telemetry.model_dump(exclude={"device_id"})
+    )
+    db.add(db_telemetry)
+    await db.commit()
+
+    return {"status": "recorded"}
+
+
+@app.get("/api/v1/devices/{device_id}/telemetry", response_model=List[schemas.TelemetryResponse])
+async def get_device_telemetry(
+    device_id: str,
+    hours: int = 24,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get device telemetry history."""
+    # Get device
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == device_id
+        )
+    )
+    device = result.first()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Get telemetry records
+    since = datetime.utcnow() - timedelta(hours=hours)
+
+    result = await db.execute(
+        models.Telemetry.__table__.select()
+        .where(
+            and_(
+                models.Telemetry.device_id == device.id,
+                models.Telemetry.recorded_at >= since,
+            )
+        )
+        .order_by(models.Telemetry.recorded_at.desc())
+    )
+
+    return result.all()
+
+
+# Firmware endpoints
+
+
+@app.post("/api/v1/firmware", response_model=schemas.FirmwareVersion, status_code=status.HTTP_201_CREATED)
+async def create_firmware_version(
+    firmware: schemas.FirmwareVersionCreate, db: AsyncSession = Depends(get_db)
+):
+    """Create a new firmware version."""
+    db_firmware = models.FirmwareVersion(**firmware.model_dump())
+    db.add(db_firmware)
+    await db.commit()
+    await db.refresh(db_firmware)
+    return db_firmware
+
+
+@app.get("/api/v1/firmware", response_model=List[schemas.FirmwareVersion])
+async def list_firmware_versions(db: AsyncSession = Depends(get_db)):
+    """List all firmware versions."""
+    result = await db.execute(
+        models.FirmwareVersion.__table__.select().order_by(
+            models.FirmwareVersion.released_at.desc()
+        )
+    )
+    return result.all()
+
+
+@app.get("/api/v1/firmware/latest", response_model=schemas.FirmwareVersion)
+async def get_latest_firmware(db: AsyncSession = Depends(get_db)):
+    """Get latest stable firmware version."""
+    result = await db.execute(
+        models.FirmwareVersion.__table__.select()
+        .where(models.FirmwareVersion.is_latest == True)
+        .limit(1)
+    )
+    firmware = result.first()
+
+    if not firmware:
+        raise HTTPException(status_code=404, detail="No firmware versions available")
+
+    return firmware
+
+
+# Analytics endpoints
+
+
+@app.get("/api/v1/analytics/organization/{org_id}", response_model=schemas.OrganizationStats)
+async def get_organization_stats(org_id: int, db: AsyncSession = Depends(get_db)):
+    """Get organization-level statistics."""
+    # This would normally use more complex aggregation queries
+    # Simplified for demonstration
+
+    # Count locations
+    locations_result = await db.execute(
+        func.count(models.Location.id).where(
+            models.Location.organization_id == org_id
+        )
+    )
+    total_locations = locations_result.scalar()
+
+    # Count devices
+    devices_result = await db.execute(
+        func.count(models.Device.id)
+        .select_from(models.Device)
+        .join(models.Location)
+        .where(models.Location.organization_id == org_id)
+    )
+    total_devices = devices_result.scalar()
+
+    # Count online devices
+    online_result = await db.execute(
+        func.count(models.Device.id)
+        .select_from(models.Device)
+        .join(models.Location)
+        .where(
+            and_(
+                models.Location.organization_id == org_id,
+                models.Device.status == DeviceStatus.ONLINE,
+            )
+        )
+    )
+    online_devices = online_result.scalar()
+
+    return schemas.OrganizationStats(
+        organization_id=org_id,
+        total_locations=total_locations or 0,
+        total_devices=total_devices or 0,
+        online_devices=online_devices or 0,
+        offline_devices=(total_devices or 0) - (online_devices or 0),
+        total_ad_breaks_today=0,  # Would aggregate from telemetry
+        total_ad_duration_seconds_today=0,
+        average_fps=None,
+        average_latency_ms=None,
+    )
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
