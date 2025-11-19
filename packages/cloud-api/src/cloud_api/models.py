@@ -121,6 +121,12 @@ class Device(Base):
     last_seen = Column(DateTime(timezone=True))
     last_heartbeat = Column(DateTime(timezone=True))
 
+    # API Key for device authentication
+    api_key = Column(String(255), unique=True, index=True)
+    api_key_enabled = Column(Boolean, default=True)
+    api_key_created_at = Column(DateTime(timezone=True))
+    api_key_last_used = Column(DateTime(timezone=True))
+
     # Device metadata (renamed to avoid SQLAlchemy reserved name)
     device_metadata = Column(JSON)  # Additional custom fields
 

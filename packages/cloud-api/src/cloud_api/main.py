@@ -5,31 +5,19 @@ FastAPI application for remote fleet management.
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import AsyncGenerator, List
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import and_, func
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ad_detection_common.models.device import DeviceStatus
-from cloud_api import models, schemas
+from cloud_api import auth, models, schemas
+from cloud_api.database import engine, get_db
 
 logger = logging.getLogger(__name__)
-
-# Database setup (async SQLAlchemy)
-DATABASE_URL = "postgresql+asyncpg://livetv:password@localhost/livetv_cloud"
-
-engine = create_async_engine(DATABASE_URL, echo=True, future=True)
-async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-
-async def get_db() -> AsyncGenerator:
-    """Dependency for database sessions."""
-    async with async_session() as session:
-        yield session
 
 
 @asynccontextmanager
@@ -72,7 +60,302 @@ app.add_middleware(
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+# Authentication endpoints
+
+
+@app.post("/api/v1/auth/register", response_model=schemas.TokenResponse, status_code=status.HTTP_201_CREATED)
+async def register_user(
+    user_data: schemas.UserRegister,
+    db: AsyncSession = Depends(get_db)
+):
+    """Register a new user.
+
+    Creates a new user account and returns authentication tokens.
+    """
+    # Check if email already exists
+    result = await db.execute(
+        models.User.__table__.select().where(
+            models.User.email == user_data.email
+        )
+    )
+    existing_user = result.first()
+
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+
+    # Verify organization exists
+    organization = await db.get(models.Organization, user_data.organization_id)
+    if not organization:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+
+    # Create user
+    hashed_password = auth.hash_password(user_data.password)
+    db_user = models.User(
+        email=user_data.email,
+        hashed_password=hashed_password,
+        full_name=user_data.full_name,
+        organization_id=user_data.organization_id,
+        is_active=True,
+        is_superuser=False
+    )
+    db.add(db_user)
+    await db.commit()
+    await db.refresh(db_user)
+
+    # Create tokens
+    token_pair = auth.create_token_pair(
+        user_id=db_user.id,
+        organization_id=db_user.organization_id,
+        email=db_user.email,
+        is_superuser=db_user.is_superuser
+    )
+
+    return schemas.TokenResponse(
+        **token_pair.model_dump(),
+        user=schemas.UserResponse.model_validate(db_user)
+    )
+
+
+@app.post("/api/v1/auth/login", response_model=schemas.TokenResponse)
+async def login_user(
+    credentials: schemas.UserLogin,
+    db: AsyncSession = Depends(get_db)
+):
+    """Authenticate user and return tokens.
+
+    Validates email and password, returns JWT tokens if successful.
+    """
+    # Get user by email
+    result = await db.execute(
+        models.User.__table__.select().where(
+            models.User.email == credentials.email
+        )
+    )
+    user = result.first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+
+    # Verify password
+    if not auth.verify_password(credentials.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+
+    # Check if user is active
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is disabled"
+        )
+
+    # Create tokens
+    token_pair = auth.create_token_pair(
+        user_id=user.id,
+        organization_id=user.organization_id,
+        email=user.email,
+        is_superuser=user.is_superuser
+    )
+
+    # Update last login
+    user.last_login = datetime.now(timezone.utc)
+    await db.commit()
+
+    return schemas.TokenResponse(
+        **token_pair.model_dump(),
+        user=schemas.UserResponse.model_validate(user)
+    )
+
+
+@app.post("/api/v1/auth/refresh", response_model=schemas.TokenResponse)
+async def refresh_token(
+    refresh_request: schemas.RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Refresh access token using refresh token.
+
+    Args:
+        refresh_request: Refresh token request
+        db: Database session
+
+    Returns:
+        New token pair
+    """
+    # Decode refresh token
+    payload = auth.decode_token(refresh_request.refresh_token)
+
+    # Verify token type
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type"
+        )
+
+    # Get user
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload"
+        )
+
+    user = await db.get(models.User, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is disabled"
+        )
+
+    # Create new token pair
+    token_pair = auth.create_token_pair(
+        user_id=user.id,
+        organization_id=user.organization_id,
+        email=user.email,
+        is_superuser=user.is_superuser
+    )
+
+    return schemas.TokenResponse(
+        **token_pair.model_dump(),
+        user=schemas.UserResponse.model_validate(user)
+    )
+
+
+@app.get("/api/v1/auth/me", response_model=schemas.UserResponse)
+async def get_current_user_info(
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Get current user information.
+
+    Requires authentication.
+    """
+    return schemas.UserResponse.model_validate(current_user)
+
+
+@app.post("/api/v1/auth/change-password")
+async def change_password(
+    password_change: schemas.PasswordChange,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Change user password.
+
+    Requires authentication.
+    """
+    # Verify current password
+    if not auth.verify_password(password_change.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect current password"
+        )
+
+    # Update password
+    current_user.hashed_password = auth.hash_password(password_change.new_password)
+    await db.commit()
+
+    return {"status": "password_changed"}
+
+
+# Device API Key Management
+
+
+@app.post("/api/v1/devices/{device_id}/api-key", response_model=schemas.APIKeyResponse)
+async def generate_device_api_key(
+    device_id: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate or regenerate API key for a device.
+
+    Requires authentication. User must have access to device's organization.
+    """
+    # Get device
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == device_id
+        )
+    )
+    device = result.first()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Get location to check organization access
+    location = await db.get(models.Location, device.location_id)
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    # Verify organization access
+    await auth.verify_organization_access(current_user, location.organization_id)
+
+    # Generate new API key
+    api_key = auth.generate_api_key()
+    device.api_key = api_key
+    device.api_key_enabled = True
+    device.api_key_created_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return schemas.APIKeyResponse(
+        api_key=api_key,
+        device_id=device_id,
+        created_at=device.api_key_created_at,
+        enabled=device.api_key_enabled
+    )
+
+
+@app.delete("/api/v1/devices/{device_id}/api-key")
+async def revoke_device_api_key(
+    device_id: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Revoke API key for a device.
+
+    Requires authentication. User must have access to device's organization.
+    """
+    # Get device
+    result = await db.execute(
+        models.Device.__table__.select().where(
+            models.Device.device_id == device_id
+        )
+    )
+    device = result.first()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Get location to check organization access
+    location = await db.get(models.Location, device.location_id)
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    # Verify organization access
+    await auth.verify_organization_access(current_user, location.organization_id)
+
+    # Disable API key
+    device.api_key_enabled = False
+    await db.commit()
+
+    return {"status": "revoked", "device_id": device_id}
 
 
 # Organization endpoints

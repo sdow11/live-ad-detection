@@ -8,6 +8,73 @@ from pydantic import BaseModel, EmailStr, Field
 from ad_detection_common.models.device import DeviceRole, DeviceStatus
 
 
+# Authentication schemas
+
+
+class UserLogin(BaseModel):
+    """Schema for user login."""
+
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+
+
+class UserRegister(BaseModel):
+    """Schema for user registration."""
+
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=100)
+    full_name: str = Field(..., min_length=1, max_length=255)
+    organization_id: int
+
+
+class UserResponse(BaseModel):
+    """User response schema."""
+
+    id: int
+    email: str
+    full_name: Optional[str] = None
+    organization_id: int
+    is_active: bool
+    is_superuser: bool
+    last_login: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TokenResponse(BaseModel):
+    """Token response schema."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int  # seconds
+    user: UserResponse
+
+
+class RefreshTokenRequest(BaseModel):
+    """Refresh token request."""
+
+    refresh_token: str
+
+
+class PasswordChange(BaseModel):
+    """Password change request."""
+
+    current_password: str
+    new_password: str = Field(..., min_length=8, max_length=100)
+
+
+class APIKeyResponse(BaseModel):
+    """API key response."""
+
+    api_key: str
+    device_id: str
+    created_at: datetime
+    enabled: bool
+
+
 # Organization schemas
 
 
