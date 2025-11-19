@@ -89,6 +89,9 @@ class TestSystemMonitor:
 
     def test_get_average_metrics(self, system_monitor, sample_metrics):
         """Test average metrics calculation."""
+        # Clear existing history and add known metrics
+        system_monitor.metrics_history.clear()
+
         # Add some metrics to history
         for _ in range(5):
             system_monitor.metrics_history.append(sample_metrics)

@@ -10,6 +10,8 @@ pytest-timeout==2.2.0
 # HTTP/API testing
 pytest-httpx==0.26.0
 httpx==0.25.2
+aiohttp==3.9.1
+aioresponses==0.7.6
 
 # Database testing
 pytest-postgresql==5.0.0
