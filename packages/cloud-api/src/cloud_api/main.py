@@ -1896,6 +1896,234 @@ async def mute_alert(
     }
 
 
+# Remote PiP Content Management Endpoints
+
+
+@app.post("/api/v1/devices/{device_id}/pip-content")
+async def set_device_pip_content(
+    device_id: str,
+    pip_config: dict,  # {default_content_id, enabled, schedules}
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Set PiP content configuration for device (remote control).
+
+    This endpoint allows cloud-based configuration of what content
+    each TV displays during ad breaks.
+    """
+    from sqlalchemy import select
+
+    # Get device and verify ownership
+    result = await db.execute(
+        select(models.Device).where(models.Device.device_id == device_id)
+    )
+    device = result.scalar_one_or_none()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Verify organization access
+    if not current_user.is_superuser:
+        result = await db.execute(
+            select(models.Location).where(models.Location.id == device.location_id)
+        )
+        location = result.scalar_one()
+
+        if location.organization_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot configure devices in other organizations"
+            )
+
+    # Store PiP configuration in device metadata
+    if not device.device_metadata:
+        device.device_metadata = {}
+
+    device.device_metadata["pip_config"] = pip_config
+    device.device_metadata["pip_config_updated_at"] = datetime.utcnow().isoformat()
+    device.device_metadata["pip_config_updated_by"] = current_user.id
+
+    await db.commit()
+
+    # Trigger webhook for configuration change
+    await webhook_service.trigger_event(
+        session=db,
+        event_type=WebhookEvent.DEVICE_ONLINE,  # Could add new event type
+        payload={
+            "device_id": device_id,
+            "pip_config": pip_config,
+            "updated_by": current_user.email
+        },
+        organization_id=location.organization_id
+    )
+
+    return {
+        "status": "success",
+        "device_id": device_id,
+        "pip_config": pip_config
+    }
+
+
+@app.get("/api/v1/devices/{device_id}/pip-content")
+async def get_device_pip_content(
+    device_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Get PiP content configuration for device."""
+    from sqlalchemy import select
+
+    # Get device
+    result = await db.execute(
+        select(models.Device).where(models.Device.device_id == device_id)
+    )
+    device = result.scalar_one_or_none()
+
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Verify organization access
+    if not current_user.is_superuser:
+        result = await db.execute(
+            select(models.Location).where(models.Location.id == device.location_id)
+        )
+        location = result.scalar_one()
+
+        if location.organization_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot access devices in other organizations"
+            )
+
+    pip_config = device.device_metadata.get("pip_config") if device.device_metadata else None
+
+    return {
+        "device_id": device_id,
+        "pip_config": pip_config or {
+            "default_content_id": None,
+            "enabled": True,
+            "schedules": []
+        }
+    }
+
+
+@app.post("/api/v1/locations/{location_id}/pip-content")
+async def set_location_pip_content(
+    location_id: int,
+    pip_config: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Set PiP content configuration for all devices in a location."""
+    from sqlalchemy import select
+
+    # Get location and verify ownership
+    result = await db.execute(
+        select(models.Location).where(models.Location.id == location_id)
+    )
+    location = result.scalar_one_or_none()
+
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    if not current_user.is_superuser and location.organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot configure locations in other organizations"
+        )
+
+    # Get all devices in location
+    result = await db.execute(
+        select(models.Device).where(models.Device.location_id == location_id)
+    )
+    devices = result.scalars().all()
+
+    updated_count = 0
+
+    for device in devices:
+        if not device.device_metadata:
+            device.device_metadata = {}
+
+        device.device_metadata["pip_config"] = pip_config
+        device.device_metadata["pip_config_updated_at"] = datetime.utcnow().isoformat()
+        device.device_metadata["pip_config_updated_by"] = current_user.id
+
+        updated_count += 1
+
+    await db.commit()
+
+    logger.info(
+        f"Updated PiP config for {updated_count} devices in location {location.name}"
+    )
+
+    return {
+        "status": "success",
+        "location_id": location_id,
+        "devices_updated": updated_count,
+        "pip_config": pip_config
+    }
+
+
+@app.post("/api/v1/organizations/{organization_id}/pip-content")
+async def set_organization_pip_content(
+    organization_id: int,
+    pip_config: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Set PiP content configuration for all devices in an organization."""
+    from sqlalchemy import select
+
+    # Verify access
+    if not current_user.is_superuser and organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot configure other organizations"
+        )
+
+    # Get organization
+    result = await db.execute(
+        select(models.Organization).where(models.Organization.id == organization_id)
+    )
+    organization = result.scalar_one_or_none()
+
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Get all devices in organization
+    result = await db.execute(
+        select(models.Device)
+        .join(models.Location)
+        .where(models.Location.organization_id == organization_id)
+    )
+    devices = result.scalars().all()
+
+    updated_count = 0
+
+    for device in devices:
+        if not device.device_metadata:
+            device.device_metadata = {}
+
+        device.device_metadata["pip_config"] = pip_config
+        device.device_metadata["pip_config_updated_at"] = datetime.utcnow().isoformat()
+        device.device_metadata["pip_config_updated_by"] = current_user.id
+
+        updated_count += 1
+
+    await db.commit()
+
+    logger.info(
+        f"Updated PiP config for {updated_count} devices in organization {organization.name}"
+    )
+
+    return {
+        "status": "success",
+        "organization_id": organization_id,
+        "devices_updated": updated_count,
+        "pip_config": pip_config
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 

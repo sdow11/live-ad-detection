@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Ad Detection Cluster{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 20px;">Cluster Dashboard</h1>
+
+<!-- Stats Grid -->
+<div class="grid grid-4">
+    <div class="stat-card green">
+        <div class="stat-value">{{ device_count }}</div>
+        <div class="stat-label">Total Devices</div>
+    </div>
+
+    <div class="stat-card blue">
+        <div class="stat-value">{{ cluster_info.get('online_devices', 0) }}</div>
+        <div class="stat-label">Online Devices</div>
+    </div>
+
+    <div class="stat-card orange">
+        <div class="stat-value">{% if is_leader %}Leader{% else %}Follower{% endif %}</div>
+        <div class="stat-label">Role</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-value" style="font-size: 24px;">v{{ cluster_info.get('version', '1.0.0') }}</div>
+        <div class="stat-label">Firmware Version</div>
+    </div>
+</div>
+
+<!-- Cluster Information -->
+<div class="card">
+    <h2>Cluster Information</h2>
+    <table>
+        <tr>
+            <th style="width: 30%;">Property</th>
+            <th>Value</th>
+        </tr>
+        <tr>
+            <td>Leader Device</td>
+            <td><strong>{{ leader_id or 'No leader elected' }}</strong></td>
+        </tr>
+        <tr>
+            <td>Network</td>
+            <td>{{ cluster_info.get('network', '192.168.1.0/24') }}</td>
+        </tr>
+        <tr>
+            <td>Discovery Method</td>
+            <td>mDNS/Avahi</td>
+        </tr>
+        <tr>
+            <td>Cluster Mode</td>
+            <td>
+                {% if is_leader %}
+                <span class="status-badge">Primary (Leader)</span>
+                {% else %}
+                <span class="status-badge warning">Secondary (Follower)</span>
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+</div>
+
+<!-- Device List -->
+<div class="card">
+    <h2>Devices in Cluster</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Device ID</th>
+                <th>Hostname</th>
+                <th>IP Address</th>
+                <th>Status</th>
+                <th>Role</th>
+                <th>Last Seen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for device in devices %}
+            <tr>
+                <td><strong>{{ device.device_id }}</strong></td>
+                <td>{{ device.hostname or 'N/A' }}</td>
+                <td>{{ device.ip_address or 'N/A' }}</td>
+                <td>
+                    {% if device.status == 'online' %}
+                    <span class="status-badge">Online</span>
+                    {% else %}
+                    <span class="status-badge error">Offline</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if device.device_id == leader_id %}
+                    <span class="status-badge">Leader</span>
+                    {% else %}
+                    <span class="status-badge warning">Follower</span>
+                    {% endif %}
+                </td>
+                <td>{{ device.get('last_seen', 'N/A') }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" style="text-align: center; padding: 30px; color: #999;">
+                    No devices found in cluster
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Quick Actions -->
+<div class="card">
+    <h2>Quick Actions</h2>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <a href="/devices" class="btn">Manage Devices</a>
+        <a href="/pip-content" class="btn btn-success">Configure PiP Content</a>
+        <button class="btn" onclick="refreshPage()">Refresh Status</button>
+        {% if is_leader %}
+        <button class="btn" onclick="syncContent()">Sync Content to Cluster</button>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    function refreshPage() {
+        location.reload();
+    }
+
+    async function syncContent() {
+        try {
+            const response = await fetch('/api/cluster/sync-content', {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showAlert('Content sync initiated successfully', 'success');
+            } else {
+                showAlert('Failed to sync content', 'error');
+            }
+        } catch (error) {
+            showAlert('Error: ' + error.message, 'error');
+        }
+    }
+
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+        fetch('/api/cluster/status')
+            .then(r => r.json())
+            .then(data => {
+                console.log('Cluster status updated', data);
+            });
+    }, 30000);
+</script>
+{% endblock %}
