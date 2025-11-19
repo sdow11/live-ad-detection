@@ -1,7 +1,7 @@
 """System management components.
 
 Boot configuration, shutdown handling, audio management, configuration persistence,
-remote control integration, and system services.
+remote control integration, monitoring, diagnostics, and system services.
 """
 
 from system.boot_config import BootConfig, boot_config
@@ -20,6 +20,9 @@ from system.audio_manager import (
 )
 from system.config_manager import ConfigManager, config_manager
 from system.remote_control import RemoteControlHandler, RemoteKey, remote_control
+from system.system_monitor import SystemMonitor, SystemMetrics, AppMetrics, system_monitor
+from system.health_check import HealthChecker, HealthStatus, HealthCheckResult, health_checker
+from system.diagnostics import DiagnosticsCollector, ErrorReport, diagnostics_collector
 
 __all__ = [
     "BootConfig",
@@ -38,4 +41,15 @@ __all__ = [
     "RemoteControlHandler",
     "RemoteKey",
     "remote_control",
+    "SystemMonitor",
+    "SystemMetrics",
+    "AppMetrics",
+    "system_monitor",
+    "HealthChecker",
+    "HealthStatus",
+    "HealthCheckResult",
+    "health_checker",
+    "DiagnosticsCollector",
+    "ErrorReport",
+    "diagnostics_collector",
 ]

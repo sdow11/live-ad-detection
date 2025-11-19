@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+
+{% block title %}System Monitoring - Ad Detection Cluster{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 20px;">System Monitoring</h1>
+
+<!-- Overall Health Status -->
+<div class="card">
+    <h2>Overall Health</h2>
+    <div style="display: flex; align-items: center; gap: 20px; padding: 20px; background: #f8f9fa; border-radius: 5px;">
+        <div style="flex: 1;">
+            {% if health_summary.overall_status == 'healthy' %}
+            <div style="font-size: 48px; color: #28a745;">✓</div>
+            <h3 style="color: #28a745;">Healthy</h3>
+            {% elif health_summary.overall_status == 'degraded' %}
+            <div style="font-size: 48px; color: #ffc107;">⚠</div>
+            <h3 style="color: #ffc107;">Degraded</h3>
+            {% elif health_summary.overall_status == 'unhealthy' %}
+            <div style="font-size: 48px; color: #dc3545;">✗</div>
+            <h3 style="color: #dc3545;">Unhealthy</h3>
+            {% else %}
+            <div style="font-size: 48px; color: #6c757d;">?</div>
+            <h3 style="color: #6c757d;">Unknown</h3>
+            {% endif %}
+        </div>
+        <div style="flex: 3;">
+            <p style="color: #666;">System health status based on resource usage, component health, and error rates.</p>
+            <button class="btn btn-sm" onclick="refreshHealth()">Refresh Health Check</button>
+        </div>
+    </div>
+</div>
+
+<!-- System Metrics Grid -->
+<div class="grid grid-4">
+    <!-- CPU -->
+    <div class="card">
+        <h3>CPU Usage</h3>
+        <div style="text-align: center; padding: 20px;">
+            <div style="font-size: 36px; font-weight: bold; margin-bottom: 10px;" id="cpu-percent">
+                {{ "%.1f"|format(metrics.cpu_percent or 0) }}%
+            </div>
+            <div style="width: 100%; height: 10px; background: #e0e0e0; border-radius: 5px; overflow: hidden;">
+                <div style="width: {{ metrics.cpu_percent or 0 }}%; height: 100%; background: {% if metrics.cpu_percent > 90 %}#dc3545{% elif metrics.cpu_percent > 80 %}#ffc107{% else %}#28a745{% endif %}; transition: width 0.3s;"></div>
+            </div>
+            {% if metrics.cpu_temp %}
+            <p style="margin-top: 10px; color: #666;">
+                Temp: <span style="font-weight: bold;" id="cpu-temp">{{ "%.1f"|format(metrics.cpu_temp) }}°C</span>
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Memory -->
+    <div class="card">
+        <h3>Memory Usage</h3>
+        <div style="text-align: center; padding: 20px;">
+            <div style="font-size: 36px; font-weight: bold; margin-bottom: 10px;" id="memory-percent">
+                {{ "%.1f"|format(metrics.memory_percent or 0) }}%
+            </div>
+            <div style="width: 100%; height: 10px; background: #e0e0e0; border-radius: 5px; overflow: hidden;">
+                <div style="width: {{ metrics.memory_percent or 0 }}%; height: 100%; background: {% if metrics.memory_percent > 90 %}#dc3545{% elif metrics.memory_percent > 85 %}#ffc107{% else %}#28a745{% endif %}; transition: width 0.3s;"></div>
+            </div>
+            <p style="margin-top: 10px; color: #666;">
+                <span id="memory-used">{{ metrics.memory_used_mb or 0 }}</span> / <span id="memory-total">{{ metrics.memory_total_mb or 0 }}</span> MB
+            </p>
+        </div>
+    </div>
+
+    <!-- Disk -->
+    <div class="card">
+        <h3>Disk Usage</h3>
+        <div style="text-align: center; padding: 20px;">
+            <div style="font-size: 36px; font-weight: bold; margin-bottom: 10px;" id="disk-percent">
+                {{ "%.1f"|format(metrics.disk_percent or 0) }}%
+            </div>
+            <div style="width: 100%; height: 10px; background: #e0e0e0; border-radius: 5px; overflow: hidden;">
+                <div style="width: {{ metrics.disk_percent or 0 }}%; height: 100%; background: {% if metrics.disk_percent > 95 %}#dc3545{% elif metrics.disk_percent > 85 %}#ffc107{% else %}#28a745{% endif %}; transition: width 0.3s;"></div>
+            </div>
+            <p style="margin-top: 10px; color: #666;">
+                <span id="disk-used">{{ "%.1f"|format(metrics.disk_used_gb or 0) }}</span> / <span id="disk-total">{{ "%.1f"|format(metrics.disk_total_gb or 0) }}</span> GB
+            </p>
+        </div>
+    </div>
+
+    <!-- Uptime -->
+    <div class="card">
+        <h3>System Uptime</h3>
+        <div style="text-align: center; padding: 20px;">
+            <div style="font-size: 28px; font-weight: bold; margin-bottom: 10px;" id="uptime-display">
+                {{ (metrics.uptime_seconds // 86400) }}d {{ ((metrics.uptime_seconds % 86400) // 3600) }}h
+            </div>
+            <p style="color: #666;">
+                {{ metrics.process_count or 0 }} processes
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- Component Health -->
+<div class="card">
+    <h2>Component Health</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Component</th>
+                <th>Status</th>
+                <th>Message</th>
+                <th>Last Check</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for component_name, component in health_summary.components.items() %}
+            <tr>
+                <td style="font-weight: bold;">{{ component_name.title() }}</td>
+                <td>
+                    {% if component.status == 'healthy' %}
+                    <span class="status-badge">Healthy</span>
+                    {% elif component.status == 'degraded' %}
+                    <span class="status-badge warning">Degraded</span>
+                    {% elif component.status == 'unhealthy' %}
+                    <span class="status-badge error">Unhealthy</span>
+                    {% else %}
+                    <span class="status-badge">Unknown</span>
+                    {% endif %}
+                </td>
+                <td>{{ component.message }}</td>
+                <td>{{ component.timestamp[:19] if component.timestamp else 'Never' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4" style="text-align: center; color: #999;">No health checks performed yet</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Error Summary -->
+<div class="card">
+    <h2>Error Summary</h2>
+    <div class="grid grid-3">
+        <div style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px;">
+            <div style="font-size: 36px; font-weight: bold; color: #dc3545;">
+                {{ error_summary.total_errors or 0 }}
+            </div>
+            <div style="color: #666; margin-top: 5px;">Total Errors</div>
+        </div>
+
+        <div style="padding: 15px; background: #f8f9fa; border-radius: 5px;">
+            <h4 style="margin-bottom: 10px;">By Severity</h4>
+            {% for severity, count in error_summary.by_severity.items() %}
+            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
+                <span>{{ severity.title() }}</span>
+                <span style="font-weight: bold;">{{ count }}</span>
+            </div>
+            {% else %}
+            <p style="color: #999;">No errors</p>
+            {% endfor %}
+        </div>
+
+        <div style="padding: 15px; background: #f8f9fa; border-radius: 5px;">
+            <h4 style="margin-bottom: 10px;">By Component</h4>
+            {% for component, count in error_summary.by_component.items() %}
+            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
+                <span>{{ component }}</span>
+                <span style="font-weight: bold;">{{ count }}</span>
+            </div>
+            {% else %}
+            <p style="color: #999;">No errors</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <a href="#" class="btn" onclick="viewErrors(); return false;">View Error Log</a>
+        <a href="#" class="btn" onclick="exportDiagnostics(); return false;">Export Diagnostics</a>
+    </div>
+</div>
+
+<!-- System Information -->
+<div class="card">
+    <h2>System Information</h2>
+    <table>
+        <tr>
+            <th style="width: 30%;">Property</th>
+            <th>Value</th>
+        </tr>
+        <tr>
+            <td>Hostname</td>
+            <td><code>{{ system_info.hostname }}</code></td>
+        </tr>
+        <tr>
+            <td>Platform</td>
+            <td>{{ system_info.platform }} ({{ system_info.architecture }})</td>
+        </tr>
+        <tr>
+            <td>CPU Cores</td>
+            <td>{{ system_info.cpu_count }}</td>
+        </tr>
+        <tr>
+            <td>Total Memory</td>
+            <td>{{ "%.2f"|format(system_info.memory_total_gb) }} GB</td>
+        </tr>
+        <tr>
+            <td>Total Disk</td>
+            <td>{{ "%.2f"|format(system_info.disk_total_gb) }} GB</td>
+        </tr>
+        <tr>
+            <td>Boot Time</td>
+            <td>{{ system_info.boot_time[:19] if system_info.boot_time else 'Unknown' }}</td>
+        </tr>
+        <tr>
+            <td>Python Version</td>
+            <td>{{ system_info.python_version }}</td>
+        </tr>
+    </table>
+</div>
+
+<script>
+    // Auto-refresh metrics every 5 seconds
+    setInterval(async () => {
+        try {
+            const response = await fetch('/api/monitoring/metrics');
+            const metrics = await response.json();
+
+            // Update CPU
+            document.getElementById('cpu-percent').textContent = metrics.cpu_percent.toFixed(1) + '%';
+            if (metrics.cpu_temp) {
+                document.getElementById('cpu-temp').textContent = metrics.cpu_temp.toFixed(1) + '°C';
+            }
+
+            // Update Memory
+            document.getElementById('memory-percent').textContent = metrics.memory_percent.toFixed(1) + '%';
+            document.getElementById('memory-used').textContent = metrics.memory_used_mb;
+            document.getElementById('memory-total').textContent = metrics.memory_total_mb;
+
+            // Update Disk
+            document.getElementById('disk-percent').textContent = metrics.disk_percent.toFixed(1) + '%';
+            document.getElementById('disk-used').textContent = metrics.disk_used_gb.toFixed(1);
+            document.getElementById('disk-total').textContent = metrics.disk_total_gb.toFixed(1);
+
+            // Update Uptime
+            const days = Math.floor(metrics.uptime_seconds / 86400);
+            const hours = Math.floor((metrics.uptime_seconds % 86400) / 3600);
+            document.getElementById('uptime-display').textContent = `${days}d ${hours}h`;
+
+        } catch (error) {
+            console.error('Failed to update metrics:', error);
+        }
+    }, 5000);
+
+    async function refreshHealth() {
+        try {
+            showAlert('Running health checks...', 'info');
+
+            const response = await fetch('/api/monitoring/health/check', { method: 'POST' });
+            const data = await response.json();
+
+            showAlert('Health check complete', 'success');
+            setTimeout(() => location.reload(), 1000);
+
+        } catch (error) {
+            showAlert('Failed to run health check: ' + error.message, 'error');
+        }
+    }
+
+    function viewErrors() {
+        window.open('/api/monitoring/diagnostics/errors?limit=1000', '_blank');
+    }
+
+    async function exportDiagnostics() {
+        try {
+            showAlert('Exporting diagnostics...', 'info');
+
+            const response = await fetch('/api/monitoring/diagnostics/export');
+            const data = await response.json();
+
+            showAlert('Diagnostics exported to: ' + data.file, 'success');
+
+        } catch (error) {
+            showAlert('Failed to export diagnostics: ' + error.message, 'error');
+        }
+    }
+</script>
+{% endblock %}

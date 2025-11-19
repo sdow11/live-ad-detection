@@ -20,6 +20,7 @@ from pip_content import ContentType, pip_content_manager, ContentSchedule
 from local_fleet.coordinator import coordinator
 from local_fleet.registry import device_registry
 from home_screen import AppRegistry
+from system import system_monitor, health_checker, diagnostics_collector
 
 # Create app registry instance
 app_registry = AppRegistry()
@@ -438,6 +439,110 @@ async def health_check():
     return JSONResponse({
         "status": "healthy",
         "is_leader": coordinator.is_leader()
+    })
+
+
+#
+# Monitoring & Diagnostics API
+#
+
+@app.get("/api/monitoring/metrics")
+async def get_metrics():
+    """Get current system metrics."""
+    metrics = system_monitor.get_latest_metrics()
+
+    if metrics:
+        return JSONResponse(metrics.to_dict())
+    else:
+        return JSONResponse({"error": "No metrics available"}, status_code=503)
+
+
+@app.get("/api/monitoring/metrics/history")
+async def get_metrics_history(minutes: int = 60):
+    """Get metrics history."""
+    history = system_monitor.get_metrics_history(minutes)
+
+    return JSONResponse({
+        "history": [m.to_dict() for m in history],
+        "count": len(history)
+    })
+
+
+@app.get("/api/monitoring/metrics/average")
+async def get_average_metrics(minutes: int = 5):
+    """Get average metrics over time period."""
+    averages = system_monitor.get_average_metrics(minutes)
+
+    return JSONResponse(averages)
+
+
+@app.get("/api/monitoring/system-info")
+async def get_system_info_endpoint():
+    """Get system information."""
+    return JSONResponse(system_monitor.get_system_info())
+
+
+@app.get("/api/monitoring/health")
+async def get_health_status():
+    """Get health status."""
+    return JSONResponse(health_checker.get_health_summary())
+
+
+@app.post("/api/monitoring/health/check")
+async def run_health_checks():
+    """Run health checks now."""
+    await health_checker.run_all_checks()
+
+    return JSONResponse(health_checker.get_health_summary())
+
+
+@app.get("/api/monitoring/diagnostics/errors")
+async def get_errors(
+    component: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = 100
+):
+    """Get error reports."""
+    errors = diagnostics_collector.get_recent_errors(component, severity, limit)
+
+    return JSONResponse({
+        "errors": [e.to_dict() for e in errors],
+        "count": len(errors)
+    })
+
+
+@app.get("/api/monitoring/diagnostics/summary")
+async def get_error_summary_endpoint():
+    """Get error summary statistics."""
+    return JSONResponse(diagnostics_collector.get_error_summary())
+
+
+@app.get("/api/monitoring/diagnostics/export")
+async def export_diagnostics():
+    """Export full diagnostics report."""
+    output_file = diagnostics_collector.export_diagnostics()
+
+    return JSONResponse({
+        "status": "success",
+        "file": str(output_file),
+        "message": "Diagnostics exported successfully"
+    })
+
+
+@app.get("/monitoring", response_class=HTMLResponse)
+async def monitoring_page(request: Request):
+    """Monitoring dashboard page."""
+    metrics = system_monitor.get_latest_metrics()
+    health_summary = health_checker.get_health_summary()
+    error_summary = diagnostics_collector.get_error_summary()
+    system_info = system_monitor.get_system_info()
+
+    return templates.TemplateResponse("monitoring.html", {
+        "request": request,
+        "metrics": metrics.to_dict() if metrics else {},
+        "health_summary": health_summary,
+        "error_summary": error_summary,
+        "system_info": system_info
     })
 
 
