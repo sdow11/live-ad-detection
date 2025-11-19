@@ -469,6 +469,365 @@ async def get_organization_stats(org_id: int, db: AsyncSession = Depends(get_db)
     )
 
 
+# ML Model Registry endpoints
+
+
+@app.post("/api/v1/models", response_model=schemas.MLModel, status_code=status.HTTP_201_CREATED)
+async def create_model(
+    model: schemas.MLModelCreate, db: AsyncSession = Depends(get_db)
+):
+    """Create a new ML model."""
+    db_model = models.MLModel(**model.model_dump())
+    db.add(db_model)
+    await db.commit()
+    await db.refresh(db_model)
+    return db_model
+
+
+@app.get("/api/v1/models", response_model=List[schemas.MLModel])
+async def list_models(
+    model_type: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    """List all ML models."""
+    query = models.MLModel.__table__.select()
+
+    if model_type:
+        query = query.where(models.MLModel.model_type == model_type)
+
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    return result.all()
+
+
+@app.get("/api/v1/models/{model_name}", response_model=schemas.MLModelWithVersions)
+async def get_model(model_name: str, db: AsyncSession = Depends(get_db)):
+    """Get ML model by name with all versions."""
+    result = await db.execute(
+        models.MLModel.__table__.select().where(
+            models.MLModel.name == model_name
+        )
+    )
+    model = result.first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Get versions
+    versions_result = await db.execute(
+        models.MLModelVersion.__table__.select()
+        .where(models.MLModelVersion.model_id == model.id)
+        .order_by(models.MLModelVersion.created_at.desc())
+    )
+    versions = versions_result.all()
+
+    # Combine model and versions
+    model_dict = dict(model._mapping)
+    model_dict['versions'] = [dict(v._mapping) for v in versions]
+
+    return model_dict
+
+
+@app.post("/api/v1/models/{model_name}/versions", response_model=schemas.MLModelVersion, status_code=status.HTTP_201_CREATED)
+async def create_model_version(
+    model_name: str,
+    version: schemas.MLModelVersionBase,
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new version for an ML model."""
+    # Get model
+    result = await db.execute(
+        models.MLModel.__table__.select().where(
+            models.MLModel.name == model_name
+        )
+    )
+    model = result.first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Check if version already exists
+    existing_result = await db.execute(
+        models.MLModelVersion.__table__.select().where(
+            and_(
+                models.MLModelVersion.model_id == model.id,
+                models.MLModelVersion.version == version.version
+            )
+        )
+    )
+    existing = existing_result.first()
+
+    if existing:
+        raise HTTPException(status_code=400, detail="Version already exists")
+
+    # Create version
+    db_version = models.MLModelVersion(
+        model_id=model.id,
+        **version.model_dump()
+    )
+    db.add(db_version)
+    await db.commit()
+    await db.refresh(db_version)
+
+    return db_version
+
+
+@app.get("/api/v1/models/{model_name}/versions", response_model=List[schemas.MLModelVersion])
+async def list_model_versions(
+    model_name: str,
+    status_filter: str | None = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """List all versions of an ML model."""
+    # Get model
+    result = await db.execute(
+        models.MLModel.__table__.select().where(
+            models.MLModel.name == model_name
+        )
+    )
+    model = result.first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Get versions
+    query = models.MLModelVersion.__table__.select().where(
+        models.MLModelVersion.model_id == model.id
+    )
+
+    if status_filter:
+        query = query.where(models.MLModelVersion.status == status_filter)
+
+    query = query.order_by(models.MLModelVersion.created_at.desc())
+
+    result = await db.execute(query)
+    return result.all()
+
+
+@app.get("/api/v1/models/{model_name}/versions/{version}", response_model=schemas.MLModelVersion)
+async def get_model_version(
+    model_name: str,
+    version: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get a specific model version."""
+    # Get model
+    result = await db.execute(
+        models.MLModel.__table__.select().where(
+            models.MLModel.name == model_name
+        )
+    )
+    model = result.first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Get version
+    result = await db.execute(
+        models.MLModelVersion.__table__.select().where(
+            and_(
+                models.MLModelVersion.model_id == model.id,
+                models.MLModelVersion.version == version
+            )
+        )
+    )
+    version_obj = result.first()
+
+    if not version_obj:
+        raise HTTPException(status_code=404, detail="Model version not found")
+
+    return version_obj
+
+
+@app.get("/api/v1/models/{model_name}/versions/{version}/download", response_model=schemas.MLModelDownload)
+async def download_model_version(
+    model_name: str,
+    version: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get download info for a model version."""
+    # Get model and version
+    model_result = await db.execute(
+        models.MLModel.__table__.select().where(
+            models.MLModel.name == model_name
+        )
+    )
+    model = model_result.first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    version_result = await db.execute(
+        models.MLModelVersion.__table__.select().where(
+            and_(
+                models.MLModelVersion.model_id == model.id,
+                models.MLModelVersion.version == version
+            )
+        )
+    )
+    version_obj = version_result.first()
+
+    if not version_obj:
+        raise HTTPException(status_code=404, detail="Model version not found")
+
+    # Return download info
+    return {
+        "model_name": model_name,
+        "version": version,
+        "file_url": version_obj.file_url,
+        "file_size_bytes": version_obj.file_size_bytes,
+        "checksum_sha256": version_obj.checksum_sha256,
+        "metadata": {
+            "input_shape": version_obj.input_shape,
+            "output_shape": version_obj.output_shape,
+            "quantization": version_obj.quantization,
+            "framework": version_obj.framework,
+            "model_metadata": version_obj.model_metadata
+        }
+    }
+
+
+@app.get("/api/v1/models/{model_name}/production", response_model=schemas.MLModelVersion)
+async def get_production_model_version(
+    model_name: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get the production version of a model."""
+    # Get model
+    result = await db.execute(
+        models.MLModel.__table__.select().where(
+            models.MLModel.name == model_name
+        )
+    )
+    model = result.first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Get production version
+    result = await db.execute(
+        models.MLModelVersion.__table__.select()
+        .where(
+            and_(
+                models.MLModelVersion.model_id == model.id,
+                models.MLModelVersion.is_production == True
+            )
+        )
+        .limit(1)
+    )
+    version = result.first()
+
+    if not version:
+        raise HTTPException(status_code=404, detail="No production version available")
+
+    return version
+
+
+@app.post("/api/v1/models/{model_name}/versions/{version}/promote")
+async def promote_model_version(
+    model_name: str,
+    version: str,
+    update: schemas.MLModelVersionUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Promote a model version (update status/rollout percentage)."""
+    # Get model
+    model_result = await db.execute(
+        models.MLModel.__table__.select().where(
+            models.MLModel.name == model_name
+        )
+    )
+    model = model_result.first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Get version
+    version_result = await db.execute(
+        models.MLModelVersion.__table__.select().where(
+            and_(
+                models.MLModelVersion.model_id == model.id,
+                models.MLModelVersion.version == version
+            )
+        )
+    )
+    version_obj = version_result.first()
+
+    if not version_obj:
+        raise HTTPException(status_code=404, detail="Model version not found")
+
+    # If promoting to production, demote existing production version
+    if update.is_production:
+        await db.execute(
+            models.MLModelVersion.__table__.update()
+            .where(
+                and_(
+                    models.MLModelVersion.model_id == model.id,
+                    models.MLModelVersion.is_production == True
+                )
+            )
+            .values(is_production=False, status="deprecated")
+        )
+
+    # Update version
+    for key, value in update.model_dump(exclude_unset=True).items():
+        setattr(version_obj, key, value)
+
+    await db.commit()
+
+    return {"status": "promoted", "model_name": model_name, "version": version}
+
+
+@app.delete("/api/v1/models/{model_name}/versions/{version}")
+async def deprecate_model_version(
+    model_name: str,
+    version: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Deprecate a model version."""
+    # Get model
+    model_result = await db.execute(
+        models.MLModel.__table__.select().where(
+            models.MLModel.name == model_name
+        )
+    )
+    model = model_result.first()
+
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Get version
+    version_result = await db.execute(
+        models.MLModelVersion.__table__.select().where(
+            and_(
+                models.MLModelVersion.model_id == model.id,
+                models.MLModelVersion.version == version
+            )
+        )
+    )
+    version_obj = version_result.first()
+
+    if not version_obj:
+        raise HTTPException(status_code=404, detail="Model version not found")
+
+    # Don't allow deleting production version
+    if version_obj.is_production:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot deprecate production version. Promote another version first."
+        )
+
+    # Mark as deprecated
+    version_obj.status = "deprecated"
+    version_obj.rollout_percentage = 0.0
+
+    await db.commit()
+
+    return {"status": "deprecated", "model_name": model_name, "version": version}
+
+
 if __name__ == "__main__":
     import uvicorn
 

@@ -260,3 +260,85 @@ class User(Base):
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email='{self.email}')>"
+
+
+class MLModel(Base):
+    """ML Model model.
+
+    Represents a machine learning model type (e.g., base-ad-detector, sports-ad-detector).
+    """
+
+    __tablename__ = "ml_models"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, nullable=False, index=True)
+    model_type = Column(String(50), nullable=False)  # ad-detector, channel-specific, sports, etc.
+    description = Column(Text)
+    architecture = Column(String(100))  # efficientnet_lite0, mobilenet_v3, etc.
+
+    is_active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    versions = relationship("MLModelVersion", back_populates="model", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<MLModel(id={self.id}, name='{self.name}', type='{self.model_type}')>"
+
+
+class MLModelVersion(Base):
+    """ML Model Version model.
+
+    Represents a specific version of a machine learning model.
+    """
+
+    __tablename__ = "ml_model_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    model_id = Column(Integer, ForeignKey("ml_models.id"), nullable=False, index=True)
+    version = Column(String(50), nullable=False, index=True)  # e.g., "1.0.0", "1.1.0"
+
+    # File info
+    file_url = Column(String(500), nullable=False)  # S3/CDN URL to .tflite file
+    file_size_bytes = Column(Integer, nullable=False)
+    checksum_sha256 = Column(String(64), nullable=False)
+
+    # Model metadata
+    input_shape = Column(JSON)  # [224, 224, 3]
+    output_shape = Column(JSON)  # [1]
+    quantization = Column(String(50))  # int8, float16, none
+    framework = Column(String(50))  # tensorflow, pytorch
+    framework_version = Column(String(50))
+
+    # Performance metrics
+    accuracy = Column(Float)
+    precision = Column(Float)
+    recall = Column(Float)
+    f1_score = Column(Float)
+    inference_time_ms = Column(Float)  # Average on Raspberry Pi 5
+    model_size_mb = Column(Float)
+
+    # Training info
+    trained_on_dataset = Column(String(100))  # Dataset version used for training
+    training_date = Column(DateTime(timezone=True))
+    training_config = Column(JSON)  # Training hyperparameters
+
+    # Deployment status
+    status = Column(String(50), default="testing")  # testing, canary, production, deprecated
+    rollout_percentage = Column(Float, default=0.0)  # For canary deployments (0-100)
+    is_production = Column(Boolean, default=False)
+
+    # Metadata
+    release_notes = Column(Text)
+    model_metadata = Column(JSON)  # Additional custom fields
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    model = relationship("MLModel", back_populates="versions")
+
+    def __repr__(self) -> str:
+        return f"<MLModelVersion(id={self.id}, model_id={self.model_id}, version='{self.version}', status='{self.status}')>"

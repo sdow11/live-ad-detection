@@ -285,3 +285,115 @@ class LocationStats(BaseModel):
     online_devices: int
     total_ad_breaks_today: int
     total_ad_duration_seconds_today: int
+
+
+# ML Model schemas
+
+
+class MLModelBase(BaseModel):
+    """Base ML model schema."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    model_type: str = Field(..., min_length=1, max_length=50)
+    description: Optional[str] = None
+    architecture: Optional[str] = None
+
+
+class MLModelCreate(MLModelBase):
+    """Schema for creating an ML model."""
+    pass
+
+
+class MLModel(MLModelBase):
+    """ML model response schema."""
+
+    id: int
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class MLModelVersionBase(BaseModel):
+    """Base ML model version schema."""
+
+    version: str = Field(..., min_length=1, max_length=50)
+    file_url: str = Field(..., min_length=1, max_length=500)
+    file_size_bytes: int = Field(..., gt=0)
+    checksum_sha256: str = Field(..., min_length=64, max_length=64)
+
+    # Model metadata
+    input_shape: Optional[List[int]] = None
+    output_shape: Optional[List[int]] = None
+    quantization: Optional[str] = None
+    framework: Optional[str] = None
+    framework_version: Optional[str] = None
+
+    # Performance metrics
+    accuracy: Optional[float] = Field(None, ge=0, le=1)
+    precision: Optional[float] = Field(None, ge=0, le=1)
+    recall: Optional[float] = Field(None, ge=0, le=1)
+    f1_score: Optional[float] = Field(None, ge=0, le=1)
+    inference_time_ms: Optional[float] = Field(None, ge=0)
+    model_size_mb: Optional[float] = Field(None, ge=0)
+
+    # Training info
+    trained_on_dataset: Optional[str] = None
+    training_date: Optional[datetime] = None
+    training_config: Optional[dict] = None
+
+    # Release notes
+    release_notes: Optional[str] = None
+    model_metadata: Optional[dict] = None
+
+
+class MLModelVersionCreate(MLModelVersionBase):
+    """Schema for creating an ML model version."""
+
+    model_id: int
+
+
+class MLModelVersionUpdate(BaseModel):
+    """Schema for updating an ML model version."""
+
+    status: Optional[str] = None
+    rollout_percentage: Optional[float] = Field(None, ge=0, le=100)
+    is_production: Optional[bool] = None
+    release_notes: Optional[str] = None
+
+
+class MLModelVersion(MLModelVersionBase):
+    """ML model version response schema."""
+
+    id: int
+    model_id: int
+    status: str
+    rollout_percentage: float
+    is_production: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class MLModelWithVersions(MLModel):
+    """ML model with versions included."""
+
+    versions: List[MLModelVersion] = []
+
+    class Config:
+        from_attributes = True
+
+
+class MLModelDownload(BaseModel):
+    """Schema for model download response."""
+
+    model_name: str
+    version: str
+    file_url: str
+    file_size_bytes: int
+    checksum_sha256: str
+    metadata: dict
