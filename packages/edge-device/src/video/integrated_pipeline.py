@@ -5,6 +5,7 @@ This module integrates all components into a production-ready system:
 - ML-based ad detection
 - PiP composition with alternate content
 - TV control (channel change or input switching)
+- Cloud reporting (optional)
 """
 
 import asyncio
@@ -14,6 +15,7 @@ from typing import Optional
 
 from compositor import VideoCompositor, CompositorConfig, ContentSource
 from compositor.content_source import ColorBarsSource
+from cloud_reporter import CloudReporter
 from ml.detector import DetectorConfig
 from ml.types import AdDetectionResult
 from tv_control import TVCommand, TVControllerConfig
@@ -57,6 +59,7 @@ class IntegratedPipeline(PiPPipeline):
         capture: VideoCaptureProtocol,
         output: VideoOutputProtocol,
         tv_controller: Optional[UnifiedTVController] = None,
+        cloud_reporter: Optional[CloudReporter] = None,
         alternate_content: Optional[ContentSource] = None,
         alternate_channel: Optional[str] = None,
         original_channel: Optional[str] = None,
@@ -72,6 +75,7 @@ class IntegratedPipeline(PiPPipeline):
             capture: Video capture source
             output: Video output destination
             tv_controller: TV controller (optional)
+            cloud_reporter: Cloud reporter for telemetry (optional)
             alternate_content: Alternate content source
             alternate_channel: Channel to switch to during ads
             original_channel: Original channel to restore
@@ -92,6 +96,7 @@ class IntegratedPipeline(PiPPipeline):
         )
 
         self.tv_controller = tv_controller
+        self.cloud_reporter = cloud_reporter
         self.alternate_channel = alternate_channel
         self.original_channel = original_channel
         self.strategy = strategy
@@ -112,9 +117,42 @@ class IntegratedPipeline(PiPPipeline):
                 f"TV controller initialized with methods: {available_methods}"
             )
 
+        # Start cloud reporter if provided
+        if self.cloud_reporter:
+            await self.cloud_reporter.start()
+            logger.info("Cloud reporter started")
+
         logger.info(
             f"Integrated pipeline initialized with strategy: {self.strategy.value}"
         )
+
+    async def process_single_frame(self) -> None:
+        """Process single frame with cloud telemetry recording.
+
+        Extends parent to record telemetry data for cloud reporting.
+        """
+        # Process frame using parent implementation
+        await super().process_single_frame()
+
+        # Record telemetry if cloud reporter is enabled
+        if self.cloud_reporter:
+            # Get pipeline stats
+            stats = self.get_stats()
+
+            # Record frame metrics
+            self.cloud_reporter.telemetry.record_frame(
+                fps=stats.average_fps if stats.average_fps > 0 else None,
+                latency_ms=stats.average_latency_ms if stats.average_latency_ms > 0 else None,
+                dropped=(stats.drop_rate > 0)
+            )
+
+            # Record ML inference metrics (get from detector)
+            detector_stats = self.detector.get_stats()
+            if detector_stats.total_frames > 0:
+                self.cloud_reporter.telemetry.record_inference(
+                    inference_time_ms=detector_stats.avg_inference_time_ms,
+                    confidence=detector_stats.avg_confidence
+                )
 
     async def _handle_detection_transitions(
         self, result: AdDetectionResult
@@ -135,6 +173,10 @@ class IntegratedPipeline(PiPPipeline):
                 f"Executing {self.strategy.value} strategy"
             )
 
+            # Record ad start in cloud telemetry
+            if self.cloud_reporter:
+                self.cloud_reporter.telemetry.record_ad_start()
+
             # Execute ad response strategy
             await self._execute_ad_start_strategy()
 
@@ -153,6 +195,10 @@ class IntegratedPipeline(PiPPipeline):
                 f"(duration: {ad_duration_frames} frames) - "
                 f"Restoring normal state"
             )
+
+            # Record ad end in cloud telemetry
+            if self.cloud_reporter:
+                self.cloud_reporter.telemetry.record_ad_end()
 
             # Execute ad end strategy
             await self._execute_ad_end_strategy()
@@ -256,6 +302,11 @@ class IntegratedPipeline(PiPPipeline):
         if self._tv_muted:
             logger.info("Unmuting TV before shutdown")
             await self.tv_controller.unmute()
+
+        # Stop cloud reporter
+        if self.cloud_reporter:
+            logger.info("Stopping cloud reporter...")
+            await self.cloud_reporter.stop()
 
         # Close base pipeline
         await super().close()
