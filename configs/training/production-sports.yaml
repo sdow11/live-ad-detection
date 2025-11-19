@@ -1,0 +1,125 @@
+"""Production training configuration for sports-specific ad detection model.
+
+Specialized for sports broadcasts (NFL, NBA, MLB, NHL, Soccer, etc.)
+Sports content has unique characteristics like scoreboards, tickers, and graphics.
+"""
+
+# Model architecture
+model:
+  architecture: efficientnet_lite0
+  input_shape: [224, 224, 3]
+  num_classes: 2  # ad vs sports content
+
+# Dataset paths
+data:
+  train_dir: data/datasets/sports/train
+  val_dir: data/datasets/sports/val
+  test_dir: data/datasets/sports/test
+
+  # Class weights (sports ads often more frequent)
+  class_weights:
+    ad: 1.2
+    content: 1.0
+
+# Data augmentation (less aggressive for sports due to scoreboards)
+augmentation:
+  enabled: true
+  random_flip: horizontal
+  random_rotation: 5  # Less rotation (scoreboards stay level)
+  random_zoom: 0.05
+  random_shift:
+    width: 0.05
+    height: 0.05
+  random_brightness: 0.15
+  random_contrast: 0.15
+  random_saturation: 0.15
+
+# Training hyperparameters
+training:
+  batch_size: 32
+  epochs: 100
+  validation_split: 0.0
+
+  optimizer:
+    type: adam
+    learning_rate: 0.0005  # Lower LR for fine-tuning
+
+  lr_schedule:
+    type: reduce_on_plateau
+    factor: 0.5
+    patience: 5
+    min_lr: 0.00001
+
+  loss: binary_crossentropy
+
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - auc
+
+  early_stopping:
+    enabled: true
+    monitor: val_loss
+    patience: 10
+    restore_best_weights: true
+
+# Model checkpointing
+checkpoints:
+  enabled: true
+  save_dir: models/checkpoints/sports-ad-detector
+  save_best_only: true
+  monitor: val_accuracy
+  mode: max
+
+# TensorBoard logging
+tensorboard:
+  enabled: true
+  log_dir: logs/tensorboard/sports-ad-detector
+
+# MLflow tracking
+mlflow:
+  enabled: true
+  experiment_name: ad-detection-production
+  run_name: sports-ad-detector-v1
+  tags:
+    model_type: sports-ad-detector
+    architecture: efficientnet_lite0
+    dataset_version: sports-v1
+    target_device: raspberry-pi-5
+    specialization: sports
+
+# Export settings
+export:
+  saved_model: true
+  saved_model_dir: models/saved/sports-ad-detector
+
+  tflite:
+    enabled: true
+    output_path: models/tflite/sports-ad-detector.tflite
+    quantization:
+      enabled: true
+      type: int8
+      representative_dataset: data/datasets/sports/calibration
+      representative_samples: 100
+
+# Random seed
+random_seed: 42
+
+# Deployment metadata
+deployment:
+  model_name: sports-ad-detector
+  version: 1.0.0
+  description: |
+    Sports-specific ad detection model trained on sports broadcasts.
+    Optimized for recognizing ads in sports content with scoreboards and tickers.
+
+  targets:
+    inference_time_ms: 50
+    accuracy: 0.96  # Higher target for specialized model
+    f1_score: 0.94
+
+  requirements:
+    min_accuracy: 0.92
+    min_f1_score: 0.88
+    max_inference_time_ms: 100

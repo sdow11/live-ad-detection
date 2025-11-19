@@ -1,0 +1,168 @@
+"""Production training configuration for base ad detection model.
+
+This configuration is optimized for production deployment on Raspberry Pi devices.
+"""
+
+# Model architecture
+model:
+  architecture: efficientnet_lite0  # Best balance of accuracy and speed for edge
+  input_shape: [224, 224, 3]
+  num_classes: 2  # ad vs content
+
+# Dataset paths
+data:
+  train_dir: data/datasets/production/train
+  val_dir: data/datasets/production/val
+  test_dir: data/datasets/production/test
+
+  # Class weights (adjust based on dataset imbalance)
+  class_weights:
+    ad: 1.5  # Slightly higher weight for ad class (usually less common)
+    content: 1.0
+
+# Data augmentation for training
+augmentation:
+  enabled: true
+
+  # Geometric augmentations
+  random_flip: horizontal
+  random_rotation: 10  # degrees
+  random_zoom: 0.1  # 10% zoom
+  random_shift:
+    width: 0.1
+    height: 0.1
+
+  # Color augmentations
+  random_brightness: 0.2
+  random_contrast: 0.2
+  random_saturation: 0.2
+  random_hue: 0.1
+
+  # Noise and blur
+  random_noise: 0.05
+  random_blur: true
+
+# Training hyperparameters
+training:
+  batch_size: 32
+  epochs: 100
+  validation_split: 0.0  # Using separate val set
+
+  # Optimizer
+  optimizer:
+    type: adam
+    learning_rate: 0.001
+
+  # Learning rate schedule
+  lr_schedule:
+    type: reduce_on_plateau
+    factor: 0.5
+    patience: 5
+    min_lr: 0.00001
+
+  # Loss function
+  loss: binary_crossentropy
+
+  # Metrics
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - auc
+
+  # Early stopping
+  early_stopping:
+    enabled: true
+    monitor: val_loss
+    patience: 10
+    restore_best_weights: true
+
+# Model checkpointing
+checkpoints:
+  enabled: true
+  save_dir: models/checkpoints/base-ad-detector
+  save_best_only: true
+  monitor: val_accuracy
+  mode: max
+  save_freq: epoch
+
+# TensorBoard logging
+tensorboard:
+  enabled: true
+  log_dir: logs/tensorboard/base-ad-detector
+  update_freq: batch
+  profile_batch: 0  # Disable profiling to reduce overhead
+
+# MLflow tracking
+mlflow:
+  enabled: true
+  experiment_name: ad-detection-production
+  run_name: base-ad-detector-v1
+  tracking_uri: http://localhost:5000
+
+  # Tags for organization
+  tags:
+    model_type: base-ad-detector
+    architecture: efficientnet_lite0
+    dataset_version: production-v1
+    target_device: raspberry-pi-5
+
+# Evaluation settings
+evaluation:
+  test_time_augmentation: false
+  confidence_threshold: 0.5
+
+  # Metrics to compute
+  compute_metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1_score
+    - confusion_matrix
+    - roc_auc
+    - pr_auc
+
+# Export settings for deployment
+export:
+  # SavedModel format (for conversion)
+  saved_model: true
+  saved_model_dir: models/saved/base-ad-detector
+
+  # TFLite conversion
+  tflite:
+    enabled: true
+    output_path: models/tflite/base-ad-detector.tflite
+
+    # Quantization
+    quantization:
+      enabled: true
+      type: int8  # INT8 quantization for best edge performance
+      representative_dataset: data/datasets/production/calibration
+      representative_samples: 100
+
+    # Optimization
+    optimizations:
+      - DEFAULT  # Default TFLite optimizations
+
+# Random seed for reproducibility
+random_seed: 42
+
+# Deployment metadata
+deployment:
+  model_name: base-ad-detector
+  version: 1.0.0
+  description: |
+    Base ad detection model trained on diverse TV content.
+    Optimized for Raspberry Pi 5 deployment with INT8 quantization.
+
+  # Performance targets (Raspberry Pi 5)
+  targets:
+    inference_time_ms: 50  # Target <50ms per frame
+    accuracy: 0.95  # Target >95% accuracy
+    f1_score: 0.93  # Target >93% F1
+
+  # Minimum requirements
+  requirements:
+    min_accuracy: 0.90
+    min_f1_score: 0.85
+    max_inference_time_ms: 100  # Max 100ms per frame

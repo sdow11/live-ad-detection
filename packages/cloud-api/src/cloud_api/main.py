@@ -24,6 +24,7 @@ from cloud_api.middleware import (
     RateLimitMiddleware,
     RequestLoggingMiddleware,
 )
+from cloud_api.model_monitoring import model_monitoring
 
 logger = logging.getLogger(__name__)
 
@@ -1560,6 +1561,62 @@ async def get_firmware_update_stats(
     )
 
     return stats
+
+
+# Model Monitoring Endpoints
+
+
+@app.get("/api/v1/monitoring/models/{model_name}/performance")
+async def get_model_performance(
+    model_name: str,
+    version: str | None = None,
+    time_window_hours: int = 24,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Get model performance metrics."""
+    performance = await model_monitoring.get_model_performance(
+        session=db,
+        model_name=model_name,
+        version=version,
+        time_window_hours=time_window_hours
+    )
+
+    return performance
+
+
+@app.get("/api/v1/monitoring/models/{model_name}/drift")
+async def get_model_drift(
+    model_name: str,
+    baseline_window_hours: int = 168,
+    current_window_hours: int = 24,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Detect data drift in model predictions."""
+    drift = await model_monitoring.detect_data_drift(
+        session=db,
+        model_name=model_name,
+        baseline_window_hours=baseline_window_hours,
+        current_window_hours=current_window_hours
+    )
+
+    return drift
+
+
+@app.get("/api/v1/monitoring/models/{model_name}/health")
+async def get_model_health(
+    model_name: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Get overall model health status."""
+    health = await model_monitoring.get_model_health(
+        session=db,
+        model_name=model_name
+    )
+
+    return health
 
 
 if __name__ == "__main__":
