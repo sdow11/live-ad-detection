@@ -66,11 +66,12 @@ class MainViewModel(
                 val success = cameraManager.openCamera(device)
 
                 if (success) {
+                    val resolution = cameraManager.getCurrentResolution()
                     _cameraState.postValue(
                         CameraState(
                             status = CameraStatus.READY,
                             deviceName = device.deviceName,
-                            resolution = "${device.width}x${device.height}"
+                            resolution = "${resolution.width}x${resolution.height}"
                         )
                     )
 
@@ -94,8 +95,40 @@ class MainViewModel(
 
     override suspend fun switchCamera(deviceId: String) {
         stopCamera()
-        // Would reopen with specific device ID
-        startCamera()
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _cameraState.postValue(_cameraState.value?.copy(status = CameraStatus.INITIALIZING))
+
+                // Find device by ID
+                val devices = cameraManager.detectUvcDevices()
+                val device = devices.find { it.deviceName == deviceId }
+
+                if (device == null) {
+                    _cameraState.postValue(CameraState(CameraStatus.ERROR))
+                    return@launch
+                }
+
+                // Open specific device
+                val success = cameraManager.openCamera(device)
+
+                if (success) {
+                    val resolution = cameraManager.getCurrentResolution()
+                    _cameraState.postValue(
+                        CameraState(
+                            status = CameraStatus.READY,
+                            deviceName = device.deviceName,
+                            resolution = "${resolution.width}x${resolution.height}"
+                        )
+                    )
+                    startFrameCapture()
+                } else {
+                    _cameraState.postValue(CameraState(CameraStatus.ERROR))
+                }
+            } catch (e: Exception) {
+                _cameraState.postValue(CameraState(CameraStatus.ERROR))
+            }
+        }
     }
 
     // ========== Detection Control ==========

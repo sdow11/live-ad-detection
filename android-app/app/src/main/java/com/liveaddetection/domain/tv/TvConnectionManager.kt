@@ -1,5 +1,6 @@
 package com.liveaddetection.domain.tv
 
+import android.bluetooth.BluetoothAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -33,15 +34,25 @@ class TvConnectionManager(
 
                 val success = when (device.type) {
                     ConnectionType.BLUETOOTH -> {
-                        // Convert device to BluetoothDevice and connect
-                        // For now, simplified
-                        bluetoothController.isConnected()
+                        // Convert TvDevice to BluetoothDevice using MAC address
+                        try {
+                            val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+                            val bluetoothDevice = bluetoothAdapter?.getRemoteDevice(device.address)
+                            if (bluetoothDevice != null) {
+                                bluetoothController.connect(bluetoothDevice)
+                            } else {
+                                false
+                            }
+                        } catch (e: Exception) {
+                            false
+                        }
                     }
                     ConnectionType.NETWORK -> {
                         networkController.connect(device)
                     }
                     ConnectionType.CEC -> {
-                        cecController.isConnected()
+                        // CEC doesn't require explicit connection, just check if supported
+                        cecController.isCecSupported()
                     }
                     ConnectionType.NONE -> false
                 }

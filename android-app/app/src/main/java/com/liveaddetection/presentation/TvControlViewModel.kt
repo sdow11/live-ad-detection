@@ -79,7 +79,7 @@ class TvControlViewModel(
     // ========== Connection ==========
 
     override suspend fun connectToDevice(device: TvDevice): Boolean {
-        return viewModelScope.launch(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             try {
                 val success = tvController.connectToDevice(device)
 
@@ -90,11 +90,11 @@ class TvControlViewModel(
                     )
                 }
 
-                return@launch success
+                success
             } catch (e: Exception) {
-                return@launch false
+                false
             }
-        }.let { true } // Simplified for now
+        }
     }
 
     override suspend fun disconnect() {
@@ -141,10 +141,10 @@ class TvControlViewModel(
             return false
         }
 
-        return viewModelScope.launch(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             val result = tvController.sendCommand(command)
-            return@launch result.success
-        }.let { true } // Simplified
+            result.success
+        }
     }
 
     // ========== Lifecycle ==========
