@@ -10,6 +10,8 @@ import uuid
 
 from .hailo_inference import HailoInference
 from .video_processor import VideoProcessor
+from .model_manager import ModelManager
+from .channel_monitor import ChannelMonitor, create_channel_change_handler
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,9 @@ class AdDetector:
         self,
         model_path: str,
         confidence_threshold: float = 0.8,
-        detection_callback: Optional[Callable[[Detection], None]] = None
+        detection_callback: Optional[Callable[[Detection], None]] = None,
+        enable_channel_monitoring: bool = True,
+        channel_stability_threshold: int = 30
     ):
         """
         Initialize ad detector.
@@ -53,14 +57,29 @@ class AdDetector:
             model_path: Path to Hailo compiled model (.hef file)
             confidence_threshold: Minimum confidence for detections
             detection_callback: Function to call when ad is detected
+            enable_channel_monitoring: Enable channel change detection
+            channel_stability_threshold: Frames needed for stability
         """
         self.model_path = model_path
         self.confidence_threshold = confidence_threshold
         self.detection_callback = detection_callback
 
         # Initialize components
-        self.hailo = HailoInference(model_path)
+        self.model_manager = ModelManager(model_path)
         self.video_processor = VideoProcessor()
+
+        # Channel monitoring
+        self.enable_channel_monitoring = enable_channel_monitoring
+        self.channel_monitor = None
+        if enable_channel_monitoring:
+            channel_callback = create_channel_change_handler(self)
+            self.channel_monitor = ChannelMonitor(
+                stability_threshold=channel_stability_threshold,
+                callback=channel_callback
+            )
+
+        # Stream state tracking
+        self.paused_streams: Dict[str, bool] = {}
 
         # Statistics
         self.stats = {
@@ -68,7 +87,8 @@ class AdDetector:
             "total_detections": 0,
             "detections_by_stream": {},
             "processing_fps": 0,
-            "inference_time_ms": 0
+            "inference_time_ms": 0,
+            "model_swaps": 0
         }
 
         self.is_running = False
@@ -83,13 +103,13 @@ class AdDetector:
         """
         logger.info("Initializing ad detector...")
 
-        # Initialize Hailo
-        if not self.hailo.initialize(self.model_path):
-            logger.error("Failed to initialize Hailo AI HAT")
+        # Initialize model manager
+        if not self.model_manager.initialize():
+            logger.error("Failed to initialize model manager")
             return False
 
         # Get device info
-        device_info = self.hailo.get_device_info()
+        device_info = self.model_manager.get_current_model().get_device_info()
         logger.info(f"Hailo device: {device_info}")
 
         logger.info("Ad detector initialized successfully")
@@ -198,10 +218,23 @@ class AdDetector:
             frame: Video frame as numpy array
         """
         try:
+            # Channel monitoring (if enabled)
+            if self.channel_monitor:
+                channel_info = self.channel_monitor.analyze_frame(stream_id, frame)
+
+                # Skip detection if channel is not stable or stream is paused
+                if not channel_info.get("stable", False):
+                    return
+
+            # Check if stream is paused
+            if self.paused_streams.get(stream_id, False):
+                return
+
             start_time = time.time()
 
-            # Run inference on Hailo
-            results = self.hailo.run_inference(frame)
+            # Run inference using model manager
+            current_model = self.model_manager.get_current_model()
+            results = current_model.run_inference(frame)
 
             if results is None:
                 return
@@ -339,6 +372,66 @@ class AdDetector:
             except Exception as e:
                 logger.error(f"Error in detection callback: {e}")
 
+    def pause_stream(self, stream_id: str):
+        """
+        Pause ad detection on a stream (e.g., during channel change).
+
+        Args:
+            stream_id: Stream identifier
+        """
+        self.paused_streams[stream_id] = True
+        logger.info(f"Paused detection on stream {stream_id}")
+
+    def resume_stream(self, stream_id: str):
+        """
+        Resume ad detection on a stream.
+
+        Args:
+            stream_id: Stream identifier
+        """
+        self.paused_streams[stream_id] = False
+        logger.info(f"Resumed detection on stream {stream_id}")
+
+    def reset_channel(self, stream_id: str):
+        """
+        Reset channel state (e.g., after manual channel change).
+
+        Args:
+            stream_id: Stream identifier
+        """
+        if self.channel_monitor:
+            self.channel_monitor.reset_channel(stream_id)
+            logger.info(f"Reset channel state for {stream_id}")
+
+    def swap_model(self, new_model_path: str) -> bool:
+        """
+        Hot-swap the detection model without stopping inference.
+
+        Args:
+            new_model_path: Path to new model file
+
+        Returns:
+            True if successful
+        """
+        logger.info(f"Swapping model to {new_model_path}...")
+
+        if self.model_manager.swap_model(new_model_path):
+            self.stats["model_swaps"] += 1
+            logger.info("Model swap successful")
+            return True
+        else:
+            logger.error("Model swap failed")
+            return False
+
+    def get_current_model_info(self) -> Dict[str, Any]:
+        """
+        Get information about the currently loaded model.
+
+        Returns:
+            Model information dictionary
+        """
+        return self.model_manager.get_model_info()
+
     def get_stats(self) -> Dict[str, Any]:
         """
         Get detector statistics.
@@ -348,11 +441,17 @@ class AdDetector:
         """
         video_stats = self.video_processor.get_all_stats()
 
-        return {
+        stats = {
             "detector": self.stats,
             "streams": video_stats,
-            "hailo": self.hailo.get_device_info()
+            "model": self.model_manager.get_model_info()
         }
+
+        # Add channel monitoring stats if enabled
+        if self.channel_monitor:
+            stats["channel_monitoring"] = self.channel_monitor.get_stats()
+
+        return stats
 
     def get_recent_detections(
         self,
@@ -385,7 +484,7 @@ class AdDetector:
         """Clean up all resources."""
         self.stop()
         self.video_processor.cleanup()
-        self.hailo.cleanup()
+        self.model_manager.cleanup()
         logger.info("AdDetector cleanup complete")
 
     def __del__(self):

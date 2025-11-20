@@ -5,8 +5,9 @@ Example script for running ad detection with AI HAT and dual HDMI streams.
 This demonstrates how to:
 1. Initialize the AI HAT (Hailo-8L)
 2. Set up dual HDMI video capture with passthrough
-3. Run real-time ad detection
-4. Report detections to the API server
+3. Run real-time ad detection with channel change monitoring
+4. Hot-swap models without stopping inference
+5. Report detections to the API server
 """
 
 import sys
@@ -68,12 +69,14 @@ def main():
     logger.info(f"Model path: {model_path}")
     logger.info(f"Confidence threshold: {confidence_threshold}")
 
-    # Initialize ad detector
+    # Initialize ad detector with channel monitoring
     logger.info("Initializing ad detector...")
     detector = AdDetector(
         model_path=model_path,
         confidence_threshold=confidence_threshold,
-        detection_callback=on_detection
+        detection_callback=on_detection,
+        enable_channel_monitoring=True,  # Enable channel change detection
+        channel_stability_threshold=30   # Wait 30 frames before detecting ads
     )
 
     if not detector.initialize():
@@ -137,6 +140,15 @@ def main():
     logger.info("✅ Ad detection running!")
     logger.info("Press Ctrl+C to stop")
 
+    # Example: Hot-swap model without stopping inference
+    # To swap models at runtime, call:
+    # detector.swap_model("/path/to/new_model.hef")
+    # This will load the new model in the background, warm it up, and
+    # atomically swap it in without dropping frames.
+
+    # Example: Manually reset channel state after changing channels
+    # detector.reset_channel("hdmi0")
+
     # Main loop - print statistics every 10 seconds
     try:
         while True:
@@ -152,6 +164,30 @@ def main():
             logger.info(f"Frames processed: {det_stats['total_frames_processed']}")
             logger.info(f"Total detections: {det_stats['total_detections']}")
             logger.info(f"Inference time: {det_stats['inference_time_ms']:.1f}ms")
+            logger.info(f"Model swaps: {det_stats['model_swaps']}")
+
+            # Model info
+            model_info = stats['model']
+            logger.info(f"\nCurrent Model: {model_info.get('model_path', 'N/A')}")
+            logger.info(f"  Loaded at: {model_info.get('loaded_at', 'N/A')}")
+            logger.info(f"  Mode: {model_info.get('mode', 'N/A')}")
+            if model_info.get('checksum'):
+                logger.info(f"  Checksum: {model_info['checksum'][:12]}...")
+
+            # Channel monitoring stats
+            if 'channel_monitoring' in stats:
+                chan_stats = stats['channel_monitoring']
+                logger.info(f"\nChannel Monitoring:")
+                logger.info(f"  Channel changes: {chan_stats['stats']['channel_changes']}")
+                logger.info(f"  Black screens: {chan_stats['stats']['black_screens']}")
+                logger.info(f"  Frozen frames: {chan_stats['stats']['frozen_frames']}")
+
+                # Per-channel status
+                for stream_id, chan_info in chan_stats['channels'].items():
+                    status = "✓ STABLE" if chan_info['stable'] else "⚠ UNSTABLE"
+                    logger.info(f"  {stream_id}: {status} "
+                              f"({chan_info['stable_frames']} frames, "
+                              f"{chan_info['seconds_since_change']:.1f}s since change)")
 
             # Per-stream stats
             for stream_id, stream_stats in stats['streams'].items():
@@ -162,13 +198,6 @@ def main():
 
                 stream_detections = det_stats['detections_by_stream'].get(stream_id, 0)
                 logger.info(f"  Detections: {stream_detections}")
-
-            # Hailo stats
-            hailo_stats = stats['hailo']
-            logger.info(f"\nHailo AI HAT: {hailo_stats.get('model', 'N/A')}")
-            logger.info(f"  Mode: {hailo_stats.get('mode', 'N/A')}")
-            if hailo_stats.get('temperature'):
-                logger.info(f"  Temperature: {hailo_stats['temperature']}°C")
 
             logger.info("=" * 60)
 
