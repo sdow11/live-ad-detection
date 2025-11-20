@@ -137,10 +137,20 @@ class MainActivity : ComponentActivity() {
             // Update detection status UI
         }
 
-        // Observe PiP state
+        // Observe PiP state - AUTOMATIC based on ad detection
         mainViewModel.getPipState().observe(this) { state ->
             if (state.enabled && !pipManager.isPipActive()) {
+                // Ad detected! Enter PiP automatically
                 pipManager.enterPipMode(state.aspectRatio)
+            } else if (!state.enabled && pipManager.isPipActive()) {
+                // Ad ended! Exit PiP automatically (return to fullscreen)
+                pipManager.exitPipMode()
+                // Note: Need to manually finish PiP mode on API 31+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    // On Android 12+, just update our state - system handles exit
+                } else {
+                    // On older versions, may need to recreate activity
+                }
             }
         }
 
@@ -185,9 +195,15 @@ class MainActivity : ComponentActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
 
-        // Enter PiP when user navigates away (e.g., home button)
+        // NOTE: PiP is now controlled AUTOMATICALLY by ad detection
+        // No need to manually trigger on user leaving app
+
+        // Optional: Uncomment below to enable PiP when user presses Home
+        // (in addition to automatic ad-based PiP)
+        /*
         if (pipManager.isPipSupported()) {
             mainViewModel.enablePip()
         }
+        */
     }
 }

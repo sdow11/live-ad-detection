@@ -32,8 +32,16 @@ class MainViewModel(
     private val _pipState = MutableLiveData(PipState())
 
     private var processingJob: Job? = null
+    private var adMonitoringJob: Job? = null
     private var frameCount = 0L
     private var lastFpsTime = System.currentTimeMillis()
+
+    // Ad detection state tracking
+    @Volatile
+    private var lastAdDetectionTime: Long = 0L
+    @Volatile
+    private var isAdCurrentlyPlaying = false
+    private val adEndDelayMs = 3000L // Wait 3 seconds after last detection before exiting PiP
 
     override fun getVideoDisplayState(): LiveData<VideoDisplayState> = _videoDisplayState
     override fun getCameraState(): LiveData<CameraState> = _cameraState
@@ -121,6 +129,9 @@ class MainViewModel(
                             _videoDisplayState.value?.copy(isProcessing = true)
                         )
                     }
+
+                    // Start ad monitoring for automatic PiP
+                    startAdMonitoring()
                 } else {
                     _detectorState.postValue(
                         DetectorState(status = DetectorStatus.ERROR)
@@ -134,6 +145,7 @@ class MainViewModel(
 
     override suspend fun stopDetection() {
         _videoDisplayState.postValue(_videoDisplayState.value?.copy(isProcessing = false))
+        adMonitoringJob?.cancel()
         detector.release()
         _detectorState.postValue(DetectorState(DetectorStatus.UNINITIALIZED))
     }
@@ -223,6 +235,19 @@ class MainViewModel(
             emptyList()
         }
 
+        // ========== AUTOMATIC PiP BASED ON AD DETECTION ==========
+        if (detections.isNotEmpty()) {
+            // Ad detected! Update last detection time
+            lastAdDetectionTime = currentTime
+
+            // Enter PiP if not already in PiP
+            if (!isAdCurrentlyPlaying) {
+                isAdCurrentlyPlaying = true
+                enablePip()
+            }
+        }
+        // Note: Ad ending is handled by adMonitoringJob (checks periodically)
+
         // Update display state
         _videoDisplayState.postValue(
             VideoDisplayState(
@@ -232,6 +257,30 @@ class MainViewModel(
                 isProcessing = _videoDisplayState.value?.isProcessing ?: false
             )
         )
+    }
+
+    // ========== Ad Monitoring for Automatic PiP ==========
+
+    /**
+     * Monitors ad detection state and automatically exits PiP when ad ends
+     */
+    private fun startAdMonitoring() {
+        adMonitoringJob?.cancel()
+
+        adMonitoringJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                kotlinx.coroutines.delay(500) // Check every 500ms
+
+                val currentTime = System.currentTimeMillis()
+                val timeSinceLastDetection = currentTime - lastAdDetectionTime
+
+                // If ad was playing and no detection for adEndDelayMs, exit PiP
+                if (isAdCurrentlyPlaying && timeSinceLastDetection > adEndDelayMs) {
+                    isAdCurrentlyPlaying = false
+                    disablePip()
+                }
+            }
+        }
     }
 
     // ========== Lifecycle ==========
@@ -254,6 +303,7 @@ class MainViewModel(
 
     override fun onDestroy() {
         processingJob?.cancel()
+        adMonitoringJob?.cancel()
         viewModelScope.launch {
             cameraManager.closeCamera()
             detector.release()
