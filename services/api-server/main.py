@@ -18,6 +18,8 @@ from database import (
     get_db,
     DBNode,
     DBDetection,
+    DBNodeStats,
+    DBDetectionEvent,
     DBConfig
 )
 
@@ -105,7 +107,7 @@ async def register_node(node: NodeRegistration, db: Session = Depends(get_db)):
         existing_node.ip_address = node.ip_address
         existing_node.status = "online"
         existing_node.last_seen = datetime.now()
-        existing_node.capabilities = node.capabilities
+        existing_node.metadata = node.capabilities  # Store capabilities in metadata field
         db.commit()
         db.refresh(existing_node)
         db_node = existing_node
@@ -121,7 +123,7 @@ async def register_node(node: NodeRegistration, db: Session = Depends(get_db)):
             cpu_usage=0.0,
             memory_usage=0.0,
             disk_usage=0.0,
-            capabilities=node.capabilities
+            metadata=node.capabilities  # Store capabilities in metadata field
         )
         db.add(db_node)
         db.commit()
@@ -186,15 +188,29 @@ async def node_heartbeat(node_id: str, stats: Dict[str, float], db: Session = De
     if not db_node:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    db_node.last_seen = datetime.now()
+    timestamp = datetime.now()
+    db_node.last_seen = timestamp
     db_node.status = "online"
     db_node.cpu_usage = stats.get("cpu_usage", 0.0)
     db_node.memory_usage = stats.get("memory_usage", 0.0)
     db_node.disk_usage = stats.get("disk_usage", 0.0)
 
+    # Store historical stats for time-series analytics
+    node_stats = DBNodeStats(
+        node_id=node_id,
+        timestamp=timestamp,
+        cpu_usage=stats.get("cpu_usage", 0.0),
+        memory_usage=stats.get("memory_usage", 0.0),
+        disk_usage=stats.get("disk_usage", 0.0),
+        network_bytes_sent=stats.get("network_bytes_sent"),
+        network_bytes_recv=stats.get("network_bytes_recv"),
+        temperature=stats.get("temperature")
+    )
+    db.add(node_stats)
+
     db.commit()
 
-    return {"status": "ok", "timestamp": db_node.last_seen}
+    return {"status": "ok", "timestamp": timestamp}
 
 @app.delete("/api/v1/nodes/{node_id}")
 async def unregister_node(node_id: str, db: Session = Depends(get_db)):
@@ -339,6 +355,108 @@ async def update_node_config(node_id: str, config: Dict[str, Any], db: Session =
     logger.info(f"Config updated for {node_id}")
 
     return {"status": "updated", "config": config}
+
+# Analytics Endpoints
+@app.get("/api/v1/analytics/nodes/{node_id}/stats")
+async def get_node_stats(
+    node_id: str,
+    hours: int = 24,
+    db: Session = Depends(get_db)
+):
+    """
+    Get historical statistics for a node (time-series data).
+
+    Args:
+        node_id: Node identifier
+        hours: Number of hours of historical data (default: 24)
+    """
+    # Check if node exists
+    db_node = db.query(DBNode).filter(DBNode.node_id == node_id).first()
+    if not db_node:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    # Get stats from the last N hours
+    from datetime import timedelta
+    since = datetime.now() - timedelta(hours=hours)
+
+    stats = db.query(DBNodeStats)\
+        .filter(DBNodeStats.node_id == node_id)\
+        .filter(DBNodeStats.timestamp >= since)\
+        .order_by(DBNodeStats.timestamp.asc())\
+        .all()
+
+    return {
+        "node_id": node_id,
+        "period_hours": hours,
+        "data_points": len(stats),
+        "stats": [
+            {
+                "timestamp": s.timestamp.isoformat(),
+                "cpu_usage": s.cpu_usage,
+                "memory_usage": s.memory_usage,
+                "disk_usage": s.disk_usage,
+                "network_bytes_sent": s.network_bytes_sent,
+                "network_bytes_recv": s.network_bytes_recv,
+                "temperature": s.temperature
+            }
+            for s in stats
+        ]
+    }
+
+@app.get("/api/v1/analytics/detections/{detection_id}/events")
+async def get_detection_events(detection_id: str, db: Session = Depends(get_db)):
+    """Get events associated with a detection (for analytics)."""
+    # Find detection by detection_id string
+    detection = db.query(DBDetection).filter(DBDetection.detection_id == detection_id).first()
+    if not detection:
+        raise HTTPException(status_code=404, detail="Detection not found")
+
+    # Get all events for this detection
+    events = db.query(DBDetectionEvent)\
+        .filter(DBDetectionEvent.detection_id == detection.id)\
+        .order_by(DBDetectionEvent.created_at.asc())\
+        .all()
+
+    return {
+        "detection_id": detection_id,
+        "events_count": len(events),
+        "events": [
+            {
+                "event_type": e.event_type,
+                "event_data": e.event_data,
+                "created_at": e.created_at.isoformat()
+            }
+            for e in events
+        ]
+    }
+
+@app.post("/api/v1/analytics/detections/{detection_id}/events")
+async def create_detection_event(
+    detection_id: str,
+    event_type: str,
+    event_data: Optional[Dict[str, Any]] = None,
+    db: Session = Depends(get_db)
+):
+    """Create an event for a detection (for analytics tracking)."""
+    # Find detection by detection_id string
+    detection = db.query(DBDetection).filter(DBDetection.detection_id == detection_id).first()
+    if not detection:
+        raise HTTPException(status_code=404, detail="Detection not found")
+
+    # Create event
+    event = DBDetectionEvent(
+        detection_id=detection.id,
+        event_type=event_type,
+        event_data=event_data or {}
+    )
+    db.add(event)
+    db.commit()
+
+    return {
+        "status": "created",
+        "detection_id": detection_id,
+        "event_type": event_type
+    }
 
 if __name__ == "__main__":
     import uvicorn
