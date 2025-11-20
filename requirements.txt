@@ -10,6 +10,13 @@ requests>=2.31.0
 psutil>=5.9.6
 pyyaml>=6.0
 
+# Video processing and AI
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Note: Hailo SDK must be installed separately for AI HAT support
+# On Raspberry Pi with AI HAT: sudo apt install hailo-all
+
 # Development dependencies
 pytest>=7.4.3
 black>=23.11.0

@@ -25,6 +25,14 @@ A distributed cluster system for live advertisement detection with touchscreen a
 - System uptime and temperature monitoring
 - Accessible via touchscreen or web interface
 
+### AI-Powered Ad Detection
+- **Raspberry Pi AI HAT** support (Hailo-8L accelerator)
+- **13 TOPS** of AI inference performance
+- **Dual video stream** processing with passthrough
+- Real-time ad detection on multiple HDMI streams
+- Hardware-accelerated inference with low latency
+- Support for custom trained models
+
 ## Architecture
 
 ```
@@ -34,24 +42,45 @@ live-ad-detection/
 │   ├── web_interface/         # Flask web application
 │   ├── touchscreen_ui/        # Kivy touchscreen application
 │   ├── device_info/           # System monitoring
+│   ├── ai_hat/                # AI HAT integration and video processing
+│   │   ├── hailo_inference.py  # Hailo-8L AI accelerator interface
+│   │   ├── video_processor.py  # Video capture and passthrough
+│   │   └── ad_detector.py      # Ad detection engine
 │   └── config/                # Configuration management
+├── services/                   # Centralized backend services
+│   ├── api-server/            # REST API for cluster management
+│   ├── data-collector/        # Data aggregation service
+│   └── docker-compose.yml     # Service orchestration
 ├── config/
 │   └── device_config.yaml     # Device configuration
 ├── scripts/
-│   ├── setup.sh              # Installation script
-│   ├── start_ap.sh           # Start WiFi AP
-│   └── stop_ap.sh            # Stop WiFi AP
-└── requirements.txt          # Python dependencies
+│   ├── deploy_head.sh         # Deploy head device
+│   ├── deploy_node.sh         # Deploy cluster node
+│   ├── deploy_all.sh          # Deploy entire cluster
+│   └── health_check.sh        # Health monitoring
+├── examples/
+│   ├── run_ad_detection.py    # Run ad detection
+│   └── test_video_streams.py  # Test video capture
+├── docs/
+│   └── AI_HAT_SETUP.md        # AI HAT setup guide
+└── requirements.txt           # Python dependencies
 ```
 
 ## Installation
 
 ### Prerequisites
 
+**Basic Setup:**
 - Linux system (Raspberry Pi, Ubuntu, Debian, etc.)
 - Python 3.8 or higher
 - WiFi adapter(s)
 - Optional: Touchscreen display for head device
+
+**For Ad Detection:**
+- Raspberry Pi 5 (required for AI HAT)
+- Raspberry Pi AI HAT with Hailo-8L accelerator
+- USB HDMI capture cards (1-2, depending on streams)
+- HDMI sources to monitor (cable box, streaming device, etc.)
 
 ### Quick Setup
 
