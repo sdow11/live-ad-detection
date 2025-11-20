@@ -19,7 +19,6 @@ services:
     restart: unless-stopped
     volumes:
       - ./api-server:/app
-      - ./shared:/app/shared
     networks:
       - live-ad-network
 
@@ -40,28 +39,28 @@ services:
     restart: unless-stopped
     volumes:
       - ./data-collector:/app
-      - ./shared:/app/shared
     networks:
       - live-ad-network
 
   # Web Dashboard - Monitoring and control interface
-  dashboard:
-    build:
-      context: ./dashboard
-      dockerfile: Dockerfile
-    container_name: live-ad-dashboard
-    ports:
-      - "3000:3000"
-    environment:
-      - API_URL=http://api-server:8000
-      - NODE_ENV=production
-    depends_on:
-      - api-server
-    restart: unless-stopped
-    volumes:
-      - ./dashboard:/app
-    networks:
-      - live-ad-network
+  # TODO: Implement dashboard frontend (React/Vue)
+  # dashboard:
+  #   build:
+  #     context: ./dashboard
+  #     dockerfile: Dockerfile
+  #   container_name: live-ad-dashboard
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - API_URL=http://api-server:8000
+  #     - NODE_ENV=production
+  #   depends_on:
+  #     - api-server
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./dashboard:/app
+  #   networks:
+  #     - live-ad-network
 
   # PostgreSQL Database
   postgres:
