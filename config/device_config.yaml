@@ -1,0 +1,129 @@
+# Live Ad Detection Device Configuration
+
+# Device role: "head" or "node"
+device_role: "head"
+
+# WiFi Configuration
+wifi:
+  # Primary WiFi interface for internet connection
+  primary_interface: "wlan0"
+
+  # Secondary WiFi interface for AP mode (cluster nodes)
+  ap_interface: "wlan1"
+
+  # Access Point settings (for head device)
+  ap_ssid: "LiveAdDetection"
+  ap_password: ""  # Leave empty for open AP, or set a password (min 8 chars)
+  ap_channel: 6
+  ap_ip: "192.168.4.1"
+  ap_netmask: "255.255.255.0"
+
+  # Auto-start AP on boot (useful when no screen access)
+  auto_start_ap: true
+
+# Web Interface Configuration
+web_interface:
+  enabled: true
+  host: "0.0.0.0"
+  port: 5000
+  auto_start: true
+
+# Touchscreen UI Configuration
+touchscreen:
+  enabled: true  # Set to false for cluster nodes
+  auto_start: true
+  fullscreen: true
+  resolution:
+    width: 800
+    height: 480
+
+# Display Configuration (for non-touch displays on nodes)
+display:
+  enabled: false  # Enable for cluster nodes with non-touch displays
+  type: "oled"  # Options: "oled", "lcd", "e-ink"
+  show_info:
+    - "hostname"
+    - "ip_address"
+    - "cpu_usage"
+    - "memory_usage"
+    - "network_status"
+
+# Ad Detection Configuration
+ad_detection:
+  enabled: false
+  confidence_threshold: 0.8
+
+  # AI HAT (Hailo-8L) Configuration
+  ai_hat:
+    enabled: false  # Set to true when AI HAT is installed
+    model_path: "/opt/live-ad-detection/models/ad_detector.hef"  # Hailo compiled model
+    inference_threads: 2
+    batch_size: 1
+
+  # Video Stream Configuration
+  video_streams:
+    # HDMI Stream 0
+    - stream_id: "hdmi0"
+      enabled: false
+      source_type: "hdmi"  # hdmi, usb, csi, rtsp, file
+      device_path: "/dev/video0"
+      resolution:
+        width: 1920
+        height: 1080
+      fps: 30
+      passthrough: true  # Enable video passthrough to output
+      passthrough_device: "/dev/video10"  # Output device for passthrough
+
+    # HDMI Stream 1
+    - stream_id: "hdmi1"
+      enabled: false
+      source_type: "hdmi"
+      device_path: "/dev/video1"
+      resolution:
+        width: 1920
+        height: 1080
+      fps: 30
+      passthrough: true
+      passthrough_device: "/dev/video11"
+
+  # Detection Settings
+  detection:
+    min_confidence: 0.8
+    frame_skip: 2  # Process every Nth frame (1 = every frame)
+    detection_cooldown: 5  # Seconds before re-detecting same ad
+    save_detections: true  # Save detection images
+    save_path: "/var/lib/live-ad-detection/detections"
+
+  # Ad Types to Detect
+  ad_types:
+    - commercial
+    - banner
+    - pre-roll
+    - mid-roll
+    - overlay
+    - sponsored_content
+
+  # Reporting
+  reporting:
+    enabled: true
+    report_to_api: true  # Report to centralized API server
+    api_url: "http://localhost:8000/api/v1/detections"
+    report_interval: 1  # Report immediately (0) or batch (seconds)
+
+# Cluster Configuration
+cluster:
+  enabled: false
+  head_node_ip: ""  # For cluster nodes, set the head node IP
+  sync_interval: 10  # seconds
+
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "/var/log/live-ad-detection.log"
+  max_size_mb: 10
+  backup_count: 5
+
+# System Configuration
+system:
+  auto_update: false
+  update_check_interval: 86400  # seconds (24 hours)

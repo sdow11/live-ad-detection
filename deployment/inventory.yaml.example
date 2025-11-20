@@ -1,0 +1,149 @@
+# Live Ad Detection Deployment Inventory
+# Copy this file to inventory.yaml and customize for your deployment
+
+# ============================================
+# Services Configuration
+# ============================================
+# Services run on a laptop, server, or cloud instance
+# These provide centralized API, data collection, and monitoring
+
+services:
+  # Host where services will run
+  # Use 'localhost' for local deployment
+  # Or specify IP/hostname for remote deployment
+  host: localhost
+
+  # Whether to deploy services
+  deploy: true
+
+  # Optional: Custom configuration
+  api_port: 8000
+  dashboard_port: 3000
+  grafana_port: 3001
+
+
+# ============================================
+# Head Device Configuration
+# ============================================
+# The main device with touchscreen interface
+# This is typically the primary controller for the cluster
+
+head_device:
+  # IP address of the head device
+  ip: 192.168.1.100
+
+  # SSH username (default: pi for Raspberry Pi)
+  user: pi
+
+  # Access Point configuration for initial setup
+  ap_ssid: LiveAdDetection
+  ap_password: ""  # Leave empty for open network
+
+  # Enable touchscreen UI
+  touchscreen: true
+
+  # Whether to deploy to this device
+  deploy: true
+
+
+# ============================================
+# Cluster Nodes Configuration
+# ============================================
+# Additional devices that perform ad detection
+# Can have optional small displays or run headless
+
+cluster_nodes:
+  # Node 1 - with OLED display
+  - name: node-01
+    ip: 192.168.1.101
+    user: pi
+    display: true
+    display_type: oled  # Options: oled, lcd, e-ink
+    deploy: true
+
+  # Node 2 - headless
+  - name: node-02
+    ip: 192.168.1.102
+    user: pi
+    display: false
+    deploy: true
+
+  # Node 3 - disabled for now
+  - name: node-03
+    ip: 192.168.1.103
+    user: pi
+    display: false
+    deploy: false
+
+  # Add more nodes as needed
+  # - name: node-04
+  #   ip: 192.168.1.104
+  #   user: pi
+  #   display: true
+  #   display_type: lcd
+  #   deploy: true
+
+
+# ============================================
+# Deployment Options
+# ============================================
+
+options:
+  # Deploy nodes in parallel (faster but harder to debug)
+  parallel: false
+
+  # Skip post-deployment health checks
+  skip_tests: false
+
+  # Backup existing configurations before deployment
+  backup: true
+
+  # SSH key file (optional, uses default if not specified)
+  # ssh_key: ~/.ssh/id_rsa
+
+  # Deployment timeout in seconds
+  timeout: 300
+
+
+# ============================================
+# Network Configuration (Optional)
+# ============================================
+# Configure how devices connect to network
+
+network:
+  # WiFi network for all devices to connect to
+  # Leave empty to configure manually via touchscreen/web interface
+  wifi_ssid: ""
+  wifi_password: ""
+
+  # Static IP configuration (optional)
+  # use_static_ip: false
+  # ip_range: 192.168.1.100-110
+  # gateway: 192.168.1.1
+  # dns: 8.8.8.8
+
+
+# ============================================
+# Example Deployment Scenarios
+# ============================================
+
+# Scenario 1: Home Lab
+# --------------------
+# - Services on laptop (localhost)
+# - 1 head device (Raspberry Pi 4 with touchscreen)
+# - 2-3 cluster nodes (Raspberry Pi Zero W or 3B+)
+# - All devices on home WiFi network
+
+# Scenario 2: Remote Installation
+# --------------------------------
+# - Services on cloud server or dedicated machine
+# - 1 head device with touchscreen for on-site setup
+# - Multiple cluster nodes deployed at remote locations
+# - Devices create their own network or connect to site WiFi
+
+# Scenario 3: Development/Testing
+# --------------------------------
+# - Services on development laptop
+# - 1 head device for testing touchscreen UI
+# - 1-2 nodes for cluster testing
+# - All on local network for easy access

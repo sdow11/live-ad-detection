@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  # API Server - Coordinates cluster nodes and provides REST API
+  api-server:
+    build:
+      context: ./api-server
+      dockerfile: Dockerfile
+    container_name: live-ad-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/live_ad_detection
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    volumes:
+      - ./api-server:/app
+    networks:
+      - live-ad-network
+
+  # Data Collector - Aggregates data from cluster nodes
+  data-collector:
+    build:
+      context: ./data-collector
+      dockerfile: Dockerfile
+    container_name: live-ad-collector
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/live_ad_detection
+      - REDIS_URL=redis://redis:6379/0
+      - API_URL=http://api-server:8000
+    depends_on:
+      - postgres
+      - redis
+      - api-server
+    restart: unless-stopped
+    volumes:
+      - ./data-collector:/app
+    networks:
+      - live-ad-network
+
+  # Web Dashboard - Monitoring and control interface
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: live-ad-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://api-server:8000
+      - NODE_ENV=production
+    depends_on:
+      - api-server
+    restart: unless-stopped
+    volumes:
+      - ./dashboard:/app
+      - /app/node_modules
+    networks:
+      - live-ad-network
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: live-ad-postgres
+    environment:
+      - POSTGRES_DB=live_ad_detection
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - live-ad-network
+
+  # Redis - Caching and message queue
+  redis:
+    image: redis:7-alpine
+    container_name: live-ad-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - live-ad-network
+    command: redis-server --appendonly yes
+
+  # Grafana - Metrics and monitoring
+  grafana:
+    image: grafana/grafana:latest
+    container_name: live-ad-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_DATABASE_TYPE=postgres
+      - GF_DATABASE_HOST=postgres:5432
+      - GF_DATABASE_NAME=live_ad_detection
+      - GF_DATABASE_USER=postgres
+      - GF_DATABASE_PASSWORD=postgres
+    depends_on:
+      - postgres
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    restart: unless-stopped
+    networks:
+      - live-ad-network
+
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: live-ad-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+    networks:
+      - live-ad-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+volumes:
+  postgres-data:
+  redis-data:
+  grafana-data:
+  prometheus-data:
+
+networks:
+  live-ad-network:
+    driver: bridge
