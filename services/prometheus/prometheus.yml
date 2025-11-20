@@ -1,0 +1,30 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'live-ad-detection'
+
+scrape_configs:
+  # API Server metrics
+  - job_name: 'api-server'
+    static_configs:
+      - targets: ['api-server:8000']
+
+  # Cluster nodes (to be dynamically updated)
+  - job_name: 'cluster-nodes'
+    static_configs:
+      - targets: []
+    # Use file-based service discovery for dynamic node list
+    # file_sd_configs:
+    #   - files:
+    #       - '/etc/prometheus/targets/nodes.json'
+
+  # PostgreSQL exporter (optional)
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+
+  # Redis exporter (optional)
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
