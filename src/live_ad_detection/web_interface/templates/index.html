@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Ad Detection - WiFi Setup</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        .current-network {
+            background: #f0f9ff;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .current-network.connected {
+            background: #f0fdf4;
+            border-left-color: #22c55e;
+        }
+
+        .current-network strong {
+            color: #1e40af;
+        }
+
+        .current-network.connected strong {
+            color: #15803d;
+        }
+
+        .network-list {
+            list-style: none;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .network-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #f8fafc;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .network-item:hover {
+            background: #e2e8f0;
+            transform: translateX(5px);
+        }
+
+        .network-info {
+            flex: 1;
+        }
+
+        .network-name {
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 1.1em;
+        }
+
+        .network-security {
+            color: #64748b;
+            font-size: 0.9em;
+            margin-top: 4px;
+        }
+
+        .signal-strength {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: #64748b;
+        }
+
+        .signal-bar {
+            width: 4px;
+            background: #cbd5e1;
+            border-radius: 2px;
+        }
+
+        .signal-bar.active {
+            background: #3b82f6;
+        }
+
+        .btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #2563eb;
+        }
+
+        .btn:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+        }
+
+        .btn-success {
+            background: #22c55e;
+        }
+
+        .btn-success:hover {
+            background: #16a34a;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .modal-content h3 {
+            margin-bottom: 20px;
+            color: #1e293b;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #475569;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 1em;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .modal-buttons button {
+            flex: 1;
+        }
+
+        .qr-section {
+            text-align: center;
+        }
+
+        .qr-code {
+            max-width: 300px;
+            margin: 20px auto;
+        }
+
+        .qr-code img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+
+        .spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status-message {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .status-message.success {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #86efac;
+        }
+
+        .status-message.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        .device-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .info-item {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .info-label {
+            color: #64748b;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .info-value {
+            color: #1e293b;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Live Ad Detection</h1>
+            <p>WiFi Setup & Device Configuration</p>
+        </div>
+
+        <div class="card">
+            <h2>Current Connection</h2>
+            <div id="currentNetwork" class="current-network">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Checking connection...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Connect to QR Code</h2>
+            <div class="qr-section">
+                <p style="color: #64748b; margin-bottom: 15px;">Scan this QR code to access this interface from your phone</p>
+                <div class="qr-code">
+                    <img src="/api/qr/connection" alt="Connection QR Code">
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Available Networks</h2>
+            <div id="statusMessage" class="status-message"></div>
+            <button class="btn" onclick="scanNetworks()" id="scanBtn">
+                Scan for Networks
+            </button>
+            <div id="networkList" style="margin-top: 20px;"></div>
+        </div>
+
+        <div class="card">
+            <h2>Device Information</h2>
+            <div id="deviceInfo" class="device-info">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading device info...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="connectModal" class="modal">
+        <div class="modal-content">
+            <h3>Connect to Network</h3>
+            <form id="connectForm" onsubmit="connectToNetwork(event)">
+                <div class="form-group">
+                    <label>Network Name (SSID)</label>
+                    <input type="text" id="connectSSID" readonly>
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="connectPassword" placeholder="Leave empty for open networks">
+                </div>
+                <div class="modal-buttons">
+                    <button type="button" class="btn" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn btn-success">Connect</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentSSID = null;
+
+        async function loadCurrentNetwork() {
+            try {
+                const response = await fetch('/api/current');
+                const data = await response.json();
+
+                const container = document.getElementById('currentNetwork');
+
+                if (data.success && data.network) {
+                    container.className = 'current-network connected';
+                    container.innerHTML = `
+                        <strong>Connected to:</strong> ${data.network.ssid}<br>
+                        <strong>Signal:</strong> ${data.network.signal}%
+                    `;
+                } else {
+                    container.className = 'current-network';
+                    container.innerHTML = '<strong>Not connected to any network</strong>';
+                }
+            } catch (error) {
+                console.error('Error loading current network:', error);
+            }
+        }
+
+        async function scanNetworks() {
+            const btn = document.getElementById('scanBtn');
+            const list = document.getElementById('networkList');
+
+            btn.disabled = true;
+            btn.textContent = 'Scanning...';
+            list.innerHTML = '<div class="loading"><div class="spinner"></div><p>Scanning for networks...</p></div>';
+
+            try {
+                const response = await fetch('/api/scan');
+                const data = await response.json();
+
+                if (data.success && data.networks.length > 0) {
+                    let html = '<ul class="network-list">';
+                    data.networks.forEach(network => {
+                        const signalBars = Math.ceil(network.signal / 20);
+                        const barsHtml = Array.from({length: 5}, (_, i) =>
+                            `<div class="signal-bar ${i < signalBars ? 'active' : ''}" style="height: ${(i + 1) * 4}px"></div>`
+                        ).join('');
+
+                        html += `
+                            <li class="network-item" onclick="showConnectModal('${network.ssid}')">
+                                <div class="network-info">
+                                    <div class="network-name">${network.ssid}</div>
+                                    <div class="network-security">${network.security}</div>
+                                </div>
+                                <div class="signal-strength">
+                                    <span>${network.signal}%</span>
+                                    ${barsHtml}
+                                </div>
+                            </li>
+                        `;
+                    });
+                    html += '</ul>';
+                    list.innerHTML = html;
+                } else {
+                    list.innerHTML = '<p style="color: #64748b; text-align: center; padding: 20px;">No networks found</p>';
+                }
+            } catch (error) {
+                console.error('Error scanning networks:', error);
+                showStatus('Error scanning networks', 'error');
+                list.innerHTML = '';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Scan for Networks';
+            }
+        }
+
+        function showConnectModal(ssid) {
+            currentSSID = ssid;
+            document.getElementById('connectSSID').value = ssid;
+            document.getElementById('connectPassword').value = '';
+            document.getElementById('connectModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('connectModal').classList.remove('active');
+            currentSSID = null;
+        }
+
+        async function connectToNetwork(event) {
+            event.preventDefault();
+
+            const ssid = document.getElementById('connectSSID').value;
+            const password = document.getElementById('connectPassword').value;
+
+            closeModal();
+            showStatus('Connecting...', 'success');
+
+            try {
+                const response = await fetch('/api/connect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ssid, password })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showStatus(`Successfully connected to ${ssid}`, 'success');
+                    setTimeout(loadCurrentNetwork, 2000);
+                } else {
+                    showStatus(`Failed to connect: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error connecting:', error);
+                showStatus('Error connecting to network', 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.textContent = message;
+            statusEl.className = `status-message ${type}`;
+            statusEl.style.display = 'block';
+
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 5000);
+        }
+
+        async function loadDeviceInfo() {
+            try {
+                const response = await fetch('/api/device/info');
+                const data = await response.json();
+
+                if (data.success && data.info) {
+                    const info = data.info;
+                    const container = document.getElementById('deviceInfo');
+
+                    container.innerHTML = `
+                        <div class="info-item">
+                            <div class="info-label">Hostname</div>
+                            <div class="info-value">${info.system.hostname}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">CPU Usage</div>
+                            <div class="info-value">${info.cpu.percent}%</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Memory</div>
+                            <div class="info-value">${info.memory.used_gb}GB / ${info.memory.total_gb}GB</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Disk Space</div>
+                            <div class="info-value">${info.disk.free_gb}GB free</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Uptime</div>
+                            <div class="info-value">${info.system.uptime}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Platform</div>
+                            <div class="info-value">${info.system.platform}</div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading device info:', error);
+            }
+        }
+
+        // Load initial data
+        loadCurrentNetwork();
+        loadDeviceInfo();
+
+        // Refresh current network status every 30 seconds
+        setInterval(loadCurrentNetwork, 30000);
+
+        // Refresh device info every 10 seconds
+        setInterval(loadDeviceInfo, 10000);
+    </script>
+</body>
+</html>
