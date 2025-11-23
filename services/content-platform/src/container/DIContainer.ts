@@ -1,11 +1,19 @@
 import { AppDataSource } from '@/database/config/database.config';
 import { ContentRepository } from '@/database/repositories/ContentRepository';
+import { ScheduleRepository } from '@/database/repositories/ScheduleRepository';
 import { ContentService } from '@/services/ContentService';
+import { ScheduleService } from '@/services/ScheduleService';
+import { PiPAutomationService } from '@/services/PiPAutomationService';
 import { LocalStorageService } from '@/services/LocalStorageService';
 import { MediaProcessorService } from '@/services/MediaProcessorService';
 import { ContentController } from '@/controllers/ContentController';
+import { ScheduleController } from '@/controllers/ScheduleController';
+import { PiPController } from '@/controllers/PiPController';
 import { IContentRepository } from '@/interfaces/IContentRepository';
+import { IScheduleRepository } from '@/interfaces/IScheduleRepository';
 import { IContentService } from '@/interfaces/IContentService';
+import { IScheduleService } from '@/interfaces/IScheduleService';
+import { IPiPAutomationService } from '@/interfaces/IPiPAutomationService';
 import { IStorageService } from '@/interfaces/IStorageService';
 import { IMediaProcessor } from '@/interfaces/IMediaProcessor';
 
@@ -20,10 +28,15 @@ import { IMediaProcessor } from '@/interfaces/IMediaProcessor';
  */
 export class DIContainer {
   private contentRepository: IContentRepository | null = null;
+  private scheduleRepository: IScheduleRepository | null = null;
   private storageService: IStorageService | null = null;
   private mediaProcessor: IMediaProcessor | null = null;
   private contentService: IContentService | null = null;
+  private scheduleService: IScheduleService | null = null;
+  private pipAutomationService: IPiPAutomationService | null = null;
   private contentController: ContentController | null = null;
+  private scheduleController: ScheduleController | null = null;
+  private pipController: PiPController | null = null;
 
   /**
    * Initialize all services with proper dependency injection
@@ -41,6 +54,10 @@ export class DIContainer {
   private initializeRepositories(): void {
     if (!this.contentRepository) {
       this.contentRepository = new ContentRepository();
+    }
+
+    if (!this.scheduleRepository) {
+      this.scheduleRepository = new ScheduleRepository();
     }
   }
 
@@ -69,6 +86,17 @@ export class DIContainer {
         this.mediaProcessor
       );
     }
+
+    if (!this.scheduleService && this.scheduleRepository) {
+      this.scheduleService = new ScheduleService(this.scheduleRepository);
+    }
+
+    if (!this.pipAutomationService && this.scheduleService && this.contentService) {
+      this.pipAutomationService = new PiPAutomationService(
+        this.scheduleService,
+        this.contentService
+      );
+    }
   }
 
   /**
@@ -77,6 +105,14 @@ export class DIContainer {
   private initializeControllers(): void {
     if (!this.contentController && this.contentService) {
       this.contentController = new ContentController(this.contentService);
+    }
+
+    if (!this.scheduleController && this.scheduleService) {
+      this.scheduleController = new ScheduleController(this.scheduleService);
+    }
+
+    if (!this.pipController && this.pipAutomationService) {
+      this.pipController = new PiPController(this.pipAutomationService);
     }
   }
 
@@ -88,6 +124,16 @@ export class DIContainer {
       throw new Error('ContentRepository not initialized. Call initialize() first.');
     }
     return this.contentRepository;
+  }
+
+  /**
+   * Get Schedule Repository instance
+   */
+  getScheduleRepository(): IScheduleRepository {
+    if (!this.scheduleRepository) {
+      throw new Error('ScheduleRepository not initialized. Call initialize() first.');
+    }
+    return this.scheduleRepository;
   }
 
   /**
@@ -121,6 +167,26 @@ export class DIContainer {
   }
 
   /**
+   * Get Schedule Service instance
+   */
+  getScheduleService(): IScheduleService {
+    if (!this.scheduleService) {
+      throw new Error('ScheduleService not initialized. Call initialize() first.');
+    }
+    return this.scheduleService;
+  }
+
+  /**
+   * Get PiP Automation Service instance
+   */
+  getPiPAutomationService(): IPiPAutomationService {
+    if (!this.pipAutomationService) {
+      throw new Error('PiPAutomationService not initialized. Call initialize() first.');
+    }
+    return this.pipAutomationService;
+  }
+
+  /**
    * Get Content Controller instance
    */
   getContentController(): ContentController {
@@ -131,14 +197,39 @@ export class DIContainer {
   }
 
   /**
+   * Get Schedule Controller instance
+   */
+  getScheduleController(): ScheduleController {
+    if (!this.scheduleController) {
+      throw new Error('ScheduleController not initialized. Call initialize() first.');
+    }
+    return this.scheduleController;
+  }
+
+  /**
+   * Get PiP Controller instance
+   */
+  getPiPController(): PiPController {
+    if (!this.pipController) {
+      throw new Error('PiPController not initialized. Call initialize() first.');
+    }
+    return this.pipController;
+  }
+
+  /**
    * Reset all instances (useful for testing)
    */
   reset(): void {
     this.contentRepository = null;
+    this.scheduleRepository = null;
     this.storageService = null;
     this.mediaProcessor = null;
     this.contentService = null;
+    this.scheduleService = null;
+    this.pipAutomationService = null;
     this.contentController = null;
+    this.scheduleController = null;
+    this.pipController = null;
   }
 
   /**
@@ -146,6 +237,7 @@ export class DIContainer {
    */
   static createTestContainer(
     contentRepository?: IContentRepository,
+    scheduleRepository?: IScheduleRepository,
     storageService?: IStorageService,
     mediaProcessor?: IMediaProcessor
   ): DIContainer {
@@ -153,6 +245,10 @@ export class DIContainer {
 
     if (contentRepository) {
       container.contentRepository = contentRepository;
+    }
+
+    if (scheduleRepository) {
+      container.scheduleRepository = scheduleRepository;
     }
 
     if (storageService) {

@@ -6,6 +6,8 @@ import multer from 'multer';
 import { AppDataSource } from '@/database/config/database.config';
 import { DIContainer } from '@/container/DIContainer';
 import { ContentController } from '@/controllers/ContentController';
+import { ScheduleController } from '@/controllers/ScheduleController';
+import { PiPController } from '@/controllers/PiPController';
 import { errorHandler, notFoundHandler } from '@/middleware/errorHandlers';
 import { authMiddleware } from '@/middleware/auth';
 import { validateContentUpload } from '@/middleware/validation';
@@ -23,6 +25,8 @@ export class App {
   private app: express.Application;
   private diContainer: DIContainer;
   private contentController: ContentController;
+  private scheduleController: ScheduleController;
+  private pipController: PiPController;
 
   constructor() {
     this.app = express();
@@ -42,6 +46,8 @@ export class App {
     
     // Get controllers from DI container
     this.contentController = this.diContainer.getContentController();
+    this.scheduleController = this.diContainer.getScheduleController();
+    this.pipController = this.diContainer.getPiPController();
   }
 
   /**
@@ -119,12 +125,33 @@ export class App {
           'GET /api/v1/content/:id': 'Get content by ID',
           'PUT /api/v1/content/:id': 'Update content',
           'DELETE /api/v1/content/:id': 'Delete content',
+          'POST /api/v1/schedules': 'Create schedule',
+          'GET /api/v1/schedules': 'List schedules',
+          'GET /api/v1/schedules/:id': 'Get schedule by ID',
+          'PUT /api/v1/schedules/:id': 'Update schedule',
+          'DELETE /api/v1/schedules/:id': 'Delete schedule',
+          'POST /api/v1/schedules/validate-cron': 'Validate cron expression',
+          'POST /api/v1/schedules/preview-executions': 'Preview schedule executions',
+          'GET /api/v1/pip/status': 'Get PiP automation status',
+          'POST /api/v1/pip/start': 'Start PiP automation',
+          'POST /api/v1/pip/stop': 'Stop PiP automation',
+          'POST /api/v1/pip/trigger': 'Manually trigger PiP',
+          'GET /api/v1/pip/sessions': 'Get active PiP sessions',
+          'DELETE /api/v1/pip/sessions/:id': 'End PiP session',
+          'GET /api/v1/pip/config': 'Get PiP configuration',
+          'PATCH /api/v1/pip/config': 'Update PiP configuration',
         },
       });
     });
 
     // Content API routes
     this.setupContentRoutes();
+
+    // Schedule API routes
+    this.setupScheduleRoutes();
+
+    // Picture-in-Picture API routes
+    this.setupPiPRoutes();
 
     // Serve static files
     this.app.use('/files', express.static(
@@ -184,6 +211,123 @@ export class App {
 
     // Mount content routes
     this.app.use('/api/v1/content', router);
+  }
+
+  /**
+   * Setup schedule-specific routes
+   */
+  private setupScheduleRoutes(): void {
+    const router = express.Router();
+
+    // Apply authentication middleware to all schedule routes
+    router.use(authMiddleware);
+
+    // Schedule CRUD operations
+    router.post('/', 
+      this.scheduleController.createSchedule.bind(this.scheduleController)
+    );
+
+    router.get('/', 
+      this.scheduleController.listSchedules.bind(this.scheduleController)
+    );
+
+    router.get('/:id', 
+      this.scheduleController.getSchedule.bind(this.scheduleController)
+    );
+
+    router.put('/:id', 
+      this.scheduleController.updateSchedule.bind(this.scheduleController)
+    );
+
+    router.delete('/:id', 
+      this.scheduleController.deleteSchedule.bind(this.scheduleController)
+    );
+
+    router.patch('/:id/toggle', 
+      this.scheduleController.toggleSchedule.bind(this.scheduleController)
+    );
+
+    // Schedule utility endpoints
+    router.post('/validate-cron', 
+      this.scheduleController.validateCronExpression.bind(this.scheduleController)
+    );
+
+    router.post('/preview-executions', 
+      this.scheduleController.previewExecutions.bind(this.scheduleController)
+    );
+
+    // Schedule execution history
+    router.get('/:id/history', 
+      this.scheduleController.getScheduleHistory.bind(this.scheduleController)
+    );
+
+    router.get('/:id/next-execution', 
+      this.scheduleController.getNextExecution.bind(this.scheduleController)
+    );
+
+    // Mount schedule routes
+    this.app.use('/api/v1/schedules', router);
+  }
+
+  /**
+   * Setup Picture-in-Picture routes
+   */
+  private setupPiPRoutes(): void {
+    const router = express.Router();
+
+    // Apply authentication middleware to all PiP routes
+    router.use(authMiddleware);
+
+    // PiP automation control
+    router.post('/start', 
+      this.pipController.startAutomation.bind(this.pipController)
+    );
+
+    router.post('/stop', 
+      this.pipController.stopAutomation.bind(this.pipController)
+    );
+
+    router.get('/status', 
+      this.pipController.getStatus.bind(this.pipController)
+    );
+
+    // PiP session management
+    router.post('/trigger', 
+      this.pipController.triggerPiP.bind(this.pipController)
+    );
+
+    router.get('/sessions', 
+      this.pipController.getActiveSessions.bind(this.pipController)
+    );
+
+    router.delete('/sessions/:sessionId', 
+      this.pipController.endSession.bind(this.pipController)
+    );
+
+    router.patch('/sessions/:sessionId/position', 
+      this.pipController.updateSessionPosition.bind(this.pipController)
+    );
+
+    // PiP configuration
+    router.get('/config', 
+      this.pipController.getConfiguration.bind(this.pipController)
+    );
+
+    router.patch('/config', 
+      this.pipController.updateConfiguration.bind(this.pipController)
+    );
+
+    // PiP trigger conditions
+    router.post('/triggers', 
+      this.pipController.addTriggerCondition.bind(this.pipController)
+    );
+
+    router.delete('/triggers/:conditionId', 
+      this.pipController.removeTriggerCondition.bind(this.pipController)
+    );
+
+    // Mount PiP routes
+    this.app.use('/api/v1/pip', router);
   }
 
   /**

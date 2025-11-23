@@ -412,15 +412,4 @@ export class ContentController {
   };
 }
 
-// Type augmentation for Express Request to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        email?: string;
-        role?: string;
-      };
-    }
-  }
-}
+// User type is declared in auth.ts middleware

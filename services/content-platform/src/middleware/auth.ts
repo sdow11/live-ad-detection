@@ -40,13 +40,14 @@ export function authMiddleware(
         email: 'test@example.com',
         role: 'user',
       };
-      return next();
+      next();
+      return;
     }
 
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
-      return res.status(401).json({
+      res.status(401).json({
         error: {
           message: 'Authorization header required',
           type: 'AuthenticationError',
@@ -55,10 +56,11 @@ export function authMiddleware(
           path: req.path,
         },
       });
+      return;
     }
 
     if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
+      res.status(401).json({
         error: {
           message: 'Authorization header must start with "Bearer "',
           type: 'AuthenticationError',
@@ -67,12 +69,13 @@ export function authMiddleware(
           path: req.path,
         },
       });
+      return;
     }
 
     const token = authHeader.substring(7); // Remove "Bearer " prefix
 
     if (!token) {
-      return res.status(401).json({
+      res.status(401).json({
         error: {
           message: 'Token not provided',
           type: 'AuthenticationError',
@@ -81,13 +84,14 @@ export function authMiddleware(
           path: req.path,
         },
       });
+      return;
     }
 
     // Verify JWT token
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
       console.error('JWT_SECRET environment variable not set');
-      return res.status(500).json({
+      res.status(500).json({
         error: {
           message: 'Server configuration error',
           type: 'InternalServerError',
@@ -96,13 +100,14 @@ export function authMiddleware(
           path: req.path,
         },
       });
+      return;
     }
 
     const decoded = jwt.verify(token, jwtSecret) as AuthenticatedUser;
 
     // Validate required fields
     if (!decoded.id || !decoded.email) {
-      return res.status(401).json({
+      res.status(401).json({
         error: {
           message: 'Invalid token payload',
           type: 'AuthenticationError',
@@ -111,6 +116,7 @@ export function authMiddleware(
           path: req.path,
         },
       });
+      return;
     }
 
     // Add user to request object
@@ -118,7 +124,7 @@ export function authMiddleware(
     next();
   } catch (error) {
     if (error instanceof jwt.JsonWebTokenError) {
-      return res.status(401).json({
+      res.status(401).json({
         error: {
           message: 'Invalid token',
           type: 'AuthenticationError',
@@ -127,10 +133,11 @@ export function authMiddleware(
           path: req.path,
         },
       });
+      return;
     }
 
     if (error instanceof jwt.TokenExpiredError) {
-      return res.status(401).json({
+      res.status(401).json({
         error: {
           message: 'Token expired',
           type: 'AuthenticationError',
@@ -139,10 +146,11 @@ export function authMiddleware(
           path: req.path,
         },
       });
+      return;
     }
 
     console.error('Authentication error:', error);
-    return res.status(500).json({
+    res.status(500).json({
       error: {
         message: 'Authentication failed',
         type: 'InternalServerError',
@@ -151,6 +159,7 @@ export function authMiddleware(
         path: req.path,
       },
     });
+    return;
   }
 }
 
@@ -197,7 +206,7 @@ export function optionalAuthMiddleware(
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      return res.status(401).json({
+      res.status(401).json({
         error: {
           message: 'Authentication required',
           type: 'AuthenticationError',
@@ -206,10 +215,11 @@ export function requireRole(...roles: string[]) {
           path: req.path,
         },
       });
+      return;
     }
 
     if (!req.user.role || !roles.includes(req.user.role)) {
-      return res.status(403).json({
+      res.status(403).json({
         error: {
           message: `Access denied. Required role: ${roles.join(' or ')}`,
           type: 'AuthorizationError',
@@ -218,6 +228,7 @@ export function requireRole(...roles: string[]) {
           path: req.path,
         },
       });
+      return;
     }
 
     next();
@@ -230,7 +241,7 @@ export function requireRole(...roles: string[]) {
 export function requireOwnership(getUserIdFromParams: (req: Request) => string) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      return res.status(401).json({
+      res.status(401).json({
         error: {
           message: 'Authentication required',
           type: 'AuthenticationError',
@@ -239,13 +250,14 @@ export function requireOwnership(getUserIdFromParams: (req: Request) => string) 
           path: req.path,
         },
       });
+      return;
     }
 
     const resourceUserId = getUserIdFromParams(req);
     
     // Allow if user owns the resource or is an admin
     if (req.user.id !== resourceUserId && req.user.role !== 'admin') {
-      return res.status(403).json({
+      res.status(403).json({
         error: {
           message: 'Access denied. You can only access your own resources.',
           type: 'AuthorizationError',
@@ -254,6 +266,7 @@ export function requireOwnership(getUserIdFromParams: (req: Request) => string) 
           path: req.path,
         },
       });
+      return;
     }
 
     next();

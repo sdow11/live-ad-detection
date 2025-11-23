@@ -72,7 +72,6 @@ export class MediaProcessorService implements IMediaProcessor {
             count: 1,
             timemarks: [`${timeOffset}`],
             size: `${width}x${height}`,
-            quality: quality,
             filename: path.basename(outputPath),
             folder: path.dirname(outputPath),
           })

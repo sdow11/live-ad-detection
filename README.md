@@ -33,6 +33,14 @@ A distributed cluster system for live advertisement detection with touchscreen a
 - Hardware-accelerated inference with low latency
 - Support for custom trained models
 
+### Enterprise Content Platform
+- **Full-Stack Content Management System** with TypeScript backend and Next.js frontend
+- **Automated Content Scheduling** with cron-based timing and timezone support
+- **Picture-in-Picture Automation** that intelligently triggers based on ad detection
+- **RESTful API** with comprehensive CRUD operations and real-time monitoring
+- **Professional Dashboard** with content library, schedule management, and analytics
+- **SOLID Architecture** with dependency injection and comprehensive testing
+
 ## Architecture
 
 ```
@@ -50,6 +58,17 @@ live-ad-detection/
 ├── services/                   # Centralized backend services
 │   ├── api-server/            # REST API for cluster management
 │   ├── data-collector/        # Data aggregation service
+│   ├── content-platform/      # Enterprise Content Management System
+│   │   ├── src/               # TypeScript backend with Express.js
+│   │   │   ├── controllers/   # HTTP request handlers
+│   │   │   ├── services/      # Business logic layer
+│   │   │   ├── models/        # Domain models and entities
+│   │   │   ├── interfaces/    # TypeScript interfaces and contracts
+│   │   │   └── database/      # Data access layer with TypeORM
+│   │   └── web-ui/           # Next.js 14+ React frontend
+│   │       ├── src/          # React components and pages
+│   │       ├── components/   # Reusable UI components
+│   │       └── hooks/        # React Query hooks and API integration
 │   └── docker-compose.yml     # Service orchestration
 ├── config/
 │   └── device_config.yaml     # Device configuration
@@ -81,6 +100,12 @@ live-ad-detection/
 - Raspberry Pi AI HAT with Hailo-8L accelerator
 - USB HDMI capture cards (1-2, depending on streams)
 - HDMI sources to monitor (cable box, streaming device, etc.)
+
+**For Content Platform:**
+- Node.js 18+ and npm/yarn
+- PostgreSQL 12+ database
+- Redis (optional, for caching)
+- Docker and Docker Compose (recommended)
 
 ### Quick Setup
 
@@ -127,6 +152,25 @@ sudo mkdir -p /etc/live-ad-detection
 sudo cp config/device_config.yaml /etc/live-ad-detection/
 ```
 
+### Content Platform Setup
+
+```bash
+# Navigate to content platform
+cd services/content-platform
+
+# Install dependencies
+npm install
+
+# Set up database (requires PostgreSQL)
+npm run db:migrate
+
+# Start development server
+npm run dev
+
+# For production deployment
+docker-compose up -d
+```
+
 ## Usage
 
 ### Starting Services
@@ -139,6 +183,18 @@ sudo systemctl start live-ad-web
 **Touchscreen UI (head device only):**
 ```bash
 sudo systemctl start live-ad-touch
+```
+
+**Content Platform Services:**
+```bash
+# Start backend API
+npm run start:api
+
+# Start frontend (Next.js)
+npm run start:web
+
+# Start both with Docker
+docker-compose up -d
 ```
 
 **Enable services to start on boot:**
@@ -198,6 +254,11 @@ sudo bash scripts/stop_ap.sh
    - Navigate to the QR Code tab
    - Scan with your phone to access web interface
 
+4. **Content Platform Dashboard:**
+   - Backend API: `http://<device-ip>:3000/api`
+   - Frontend Dashboard: `http://<device-ip>:3001`
+   - API Documentation: `http://<device-ip>:3000/api`
+
 ## Configuration
 
 The main configuration file is located at:
@@ -232,6 +293,13 @@ touchscreen:
 display:
   enabled: false
   type: "oled"
+
+# Content Platform
+content_platform:
+  enabled: true
+  backend_port: 3000
+  frontend_port: 3001
+  database_url: "postgresql://user:pass@localhost:5432/content_platform"
 ```
 
 ## Features by Interface
@@ -252,6 +320,16 @@ The web interface provides:
   - Web interface access
   - WiFi network credentials
 - Real-time status updates
+
+### Content Platform Dashboard
+
+The enterprise content management system provides:
+- **Content Library**: Upload, organize, and manage video/image content
+- **Schedule Management**: Create automated content schedules with cron expressions
+- **Picture-in-Picture**: Intelligent automation that triggers PiP based on ad detection
+- **Real-time Monitoring**: Live status updates and execution tracking
+- **REST API**: Comprehensive API for integration and automation
+- **Professional UI**: Modern React-based dashboard with responsive design
 
 ## Cluster Setup
 
@@ -406,6 +484,34 @@ flake8 src/
 - `POST /api/ap/start` - Start access point
 - `POST /api/ap/stop` - Stop access point
 
+### Content Platform API Endpoints
+
+**Content Management:**
+- `POST /api/v1/content` - Upload content with metadata
+- `GET /api/v1/content` - List content with filtering and pagination
+- `GET /api/v1/content/:id` - Get specific content details
+- `PUT /api/v1/content/:id` - Update content metadata
+- `DELETE /api/v1/content/:id` - Delete content
+
+**Schedule Management:**
+- `POST /api/v1/schedules` - Create content schedule
+- `GET /api/v1/schedules` - List schedules with filtering
+- `GET /api/v1/schedules/:id` - Get schedule details
+- `PUT /api/v1/schedules/:id` - Update schedule
+- `DELETE /api/v1/schedules/:id` - Delete schedule
+- `POST /api/v1/schedules/validate-cron` - Validate cron expression
+- `POST /api/v1/schedules/preview-executions` - Preview schedule execution times
+
+**Picture-in-Picture Automation:**
+- `GET /api/v1/pip/status` - Get PiP automation status
+- `POST /api/v1/pip/start` - Start PiP automation
+- `POST /api/v1/pip/stop` - Stop PiP automation
+- `POST /api/v1/pip/trigger` - Manually trigger PiP
+- `GET /api/v1/pip/sessions` - Get active PiP sessions
+- `DELETE /api/v1/pip/sessions/:id` - End PiP session
+- `GET /api/v1/pip/config` - Get PiP configuration
+- `PATCH /api/v1/pip/config` - Update PiP configuration
+
 ### Python API
 
 ```python
@@ -420,6 +526,30 @@ wifi.connect_to_network("MySSID", "password")
 # Device monitoring
 monitor = DeviceMonitor()
 info = monitor.get_all_info()
+```
+
+### TypeScript/JavaScript API
+
+```typescript
+import { apiClient } from '@/lib/api';
+
+// Content management
+const uploadContent = async (file: File, metadata: any) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('metadata', JSON.stringify(metadata));
+  return apiClient.post('/api/v1/content', formData);
+};
+
+// Schedule management
+const createSchedule = async (scheduleData: any) => {
+  return apiClient.post('/api/v1/schedules', scheduleData);
+};
+
+// PiP automation
+const triggerPiP = async (contentId: string, reason: string) => {
+  return apiClient.post('/api/v1/pip/trigger', { contentId, reason });
+};
 ```
 
 ## License

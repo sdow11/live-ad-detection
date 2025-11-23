@@ -565,7 +565,7 @@ describe('MediaProcessorService', () => {
       const outputPath = '/output/transcoded.mp4';
       const options = {};
 
-      const mockOn = jest.fn((event: string, callback: Function) => {
+      const mockOn = jest.fn((event: string, callback: Function): any => {
         if (event === 'error') {
           setTimeout(() => callback(new Error('Transcoding failed')), 0);
         }

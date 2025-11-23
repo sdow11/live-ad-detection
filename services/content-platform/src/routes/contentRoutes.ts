@@ -55,7 +55,7 @@ export function createContentRoutes(contentController: ContentController): Route
     '/',
     upload.single('file'),
     uploadMiddleware,
-    contentController.uploadContent
+    contentController.createContent
   );
 
   /**

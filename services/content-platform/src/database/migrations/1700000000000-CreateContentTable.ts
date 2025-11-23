@@ -164,46 +164,26 @@ export class CreateContentTable1700000000000 implements MigrationInterface {
       true
     );
 
-    // Create indexes for performance
-    await queryRunner.createIndex(
-      'contents',
-      new Index({
-        name: 'IDX_contents_userId_status',
-        columnNames: ['userId', 'status'],
-      })
-    );
+    // Create indexes for performance using direct SQL
+    await queryRunner.query(`
+      CREATE INDEX "IDX_contents_userId_status" ON "contents" ("userId", "status")
+    `);
 
-    await queryRunner.createIndex(
-      'contents',
-      new Index({
-        name: 'IDX_contents_contentType_status',
-        columnNames: ['contentType', 'status'],
-      })
-    );
+    await queryRunner.query(`
+      CREATE INDEX "IDX_contents_contentType_status" ON "contents" ("contentType", "status")
+    `);
 
-    await queryRunner.createIndex(
-      'contents',
-      new Index({
-        name: 'IDX_contents_createdAt',
-        columnNames: ['createdAt'],
-      })
-    );
+    await queryRunner.query(`
+      CREATE INDEX "IDX_contents_createdAt" ON "contents" ("createdAt")
+    `);
 
-    await queryRunner.createIndex(
-      'contents',
-      new Index({
-        name: 'IDX_contents_isPublic',
-        columnNames: ['isPublic'],
-      })
-    );
+    await queryRunner.query(`
+      CREATE INDEX "IDX_contents_isPublic" ON "contents" ("isPublic")
+    `);
 
-    await queryRunner.createIndex(
-      'contents',
-      new Index({
-        name: 'IDX_contents_deletedAt',
-        columnNames: ['deletedAt'],
-      })
-    );
+    await queryRunner.query(`
+      CREATE INDEX "IDX_contents_deletedAt" ON "contents" ("deletedAt")
+    `);
 
     // Create GIN index for JSONB metadata
     await queryRunner.query(`

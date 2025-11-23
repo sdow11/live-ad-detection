@@ -1,10 +1,17 @@
 import { Request, Response, NextFunction } from 'express';
 import { ValidationError } from '@/utils/errors';
 
+// Re-export ValidationError for convenience
+export { ValidationError };
+
 /**
  * Validation Middleware
  * 
- * Request validation for content upload and update operations
+ * Single Responsibility: Validate HTTP requests
+ * Open/Closed: Extensible for new validation rules
+ * Liskov Substitution: Standard Express middleware interface
+ * Interface Segregation: Focused validation functions
+ * Dependency Inversion: Uses ValidationError abstraction
  */
 
 /**
@@ -18,21 +25,13 @@ export function validateContentUpload(
   try {
     // Check if file was uploaded
     if (!req.file) {
-      throw new ValidationError('File is required', {
-        field: 'file',
-        code: 'MISSING_FILE',
-      });
+      throw new ValidationError('File is required', ['file']);
     }
 
     // Validate file size (additional check beyond multer)
     const maxSize = 2 * 1024 * 1024 * 1024; // 2GB
     if (req.file.size > maxSize) {
-      throw new ValidationError('File size exceeds 2GB limit', {
-        field: 'file',
-        code: 'FILE_TOO_LARGE',
-        maxSize,
-        actualSize: req.file.size,
-      });
+      throw new ValidationError('File size exceeds 2GB limit', ['file']);
     }
 
     // Validate MIME type
@@ -48,12 +47,7 @@ export function validateContentUpload(
     ];
 
     if (!allowedMimeTypes.includes(req.file.mimetype)) {
-      throw new ValidationError(`Unsupported file type: ${req.file.mimetype}`, {
-        field: 'file',
-        code: 'INVALID_MIME_TYPE',
-        allowedTypes: allowedMimeTypes,
-        actualType: req.file.mimetype,
-      });
+      throw new ValidationError(`Unsupported file type: ${req.file.mimetype}`, ['file']);
     }
 
     // Validate optional fields from request body
@@ -97,10 +91,7 @@ export function validateContentUpdate(
     );
 
     if (providedFields.length === 0) {
-      throw new ValidationError('At least one field must be provided for update', {
-        code: 'NO_UPDATE_FIELDS',
-        allowedFields,
-      });
+      throw new ValidationError('At least one field must be provided for update', ['update']);
     }
 
     // Validate individual fields if provided
@@ -150,24 +141,12 @@ export function validateTranscodeRequest(
     if (resolution) {
       const resolutionPattern = /^\d+x\d+$/;
       if (!resolutionPattern.test(resolution)) {
-        throw new ValidationError('Invalid resolution format. Expected format: WIDTHxHEIGHT (e.g., 1920x1080)', {
-          field: 'resolution',
-          code: 'INVALID_RESOLUTION_FORMAT',
-          expected: 'WIDTHxHEIGHT',
-          actual: resolution,
-        });
+        throw new ValidationError('Invalid resolution format. Expected format: WIDTHxHEIGHT (e.g., 1920x1080)', ['resolution']);
       }
 
       const [width, height] = resolution.split('x').map(Number);
       if (width > 4096 || height > 4096) {
-        throw new ValidationError('Resolution exceeds maximum allowed (4096x4096)', {
-          field: 'resolution',
-          code: 'RESOLUTION_TOO_HIGH',
-          maxWidth: 4096,
-          maxHeight: 4096,
-          requestedWidth: width,
-          requestedHeight: height,
-        });
+        throw new ValidationError('Resolution exceeds maximum allowed (4096x4096)', ['resolution']);
       }
     }
 
@@ -175,22 +154,12 @@ export function validateTranscodeRequest(
     if (bitrate) {
       const bitratePattern = /^\d+k$/;
       if (!bitratePattern.test(bitrate)) {
-        throw new ValidationError('Invalid bitrate format. Expected format: NUMBER + "k" (e.g., 2000k)', {
-          field: 'bitrate',
-          code: 'INVALID_BITRATE_FORMAT',
-          expected: 'NUMBERk',
-          actual: bitrate,
-        });
+        throw new ValidationError('Invalid bitrate format. Expected format: NUMBER + "k" (e.g., 2000k)', ['bitrate']);
       }
 
       const bitrateValue = parseInt(bitrate.replace('k', ''));
       if (bitrateValue > 50000) {
-        throw new ValidationError('Bitrate exceeds maximum allowed (50000k)', {
-          field: 'bitrate',
-          code: 'BITRATE_TOO_HIGH',
-          maxBitrate: 50000,
-          requestedBitrate: bitrateValue,
-        });
+        throw new ValidationError('Bitrate exceeds maximum allowed (50000k)', ['bitrate']);
       }
     }
 
@@ -198,12 +167,7 @@ export function validateTranscodeRequest(
     if (codec) {
       const allowedCodecs = ['libx264', 'libx265', 'vp8', 'vp9', 'av1'];
       if (!allowedCodecs.includes(codec)) {
-        throw new ValidationError(`Unsupported codec: ${codec}`, {
-          field: 'codec',
-          code: 'INVALID_CODEC',
-          allowedCodecs,
-          actualCodec: codec,
-        });
+        throw new ValidationError(`Unsupported codec: ${codec}`, ['codec']);
       }
     }
 
@@ -211,12 +175,7 @@ export function validateTranscodeRequest(
     if (format) {
       const allowedFormats = ['mp4', 'webm', 'avi'];
       if (!allowedFormats.includes(format)) {
-        throw new ValidationError(`Unsupported format: ${format}`, {
-          field: 'format',
-          code: 'INVALID_FORMAT',
-          allowedFormats,
-          actualFormat: format,
-        });
+        throw new ValidationError(`Unsupported format: ${format}`, ['format']);
       }
     }
 
@@ -228,109 +187,59 @@ export function validateTranscodeRequest(
 
 /**
  * Individual field validation functions
+ * Following Single Responsibility Principle
  */
 
 function validateTitle(title: any): void {
   if (typeof title !== 'string') {
-    throw new ValidationError('Title must be a string', {
-      field: 'title',
-      code: 'INVALID_TYPE',
-      expected: 'string',
-      actual: typeof title,
-    });
+    throw new ValidationError('Title must be a string', ['title']);
   }
 
   if (title.trim().length === 0) {
-    throw new ValidationError('Title cannot be empty', {
-      field: 'title',
-      code: 'EMPTY_VALUE',
-    });
+    throw new ValidationError('Title cannot be empty', ['title']);
   }
 
   if (title.length > 255) {
-    throw new ValidationError('Title cannot exceed 255 characters', {
-      field: 'title',
-      code: 'VALUE_TOO_LONG',
-      maxLength: 255,
-      actualLength: title.length,
-    });
+    throw new ValidationError('Title cannot exceed 255 characters', ['title']);
   }
 }
 
 function validateDescription(description: any): void {
   if (description !== null && typeof description !== 'string') {
-    throw new ValidationError('Description must be a string or null', {
-      field: 'description',
-      code: 'INVALID_TYPE',
-      expected: 'string | null',
-      actual: typeof description,
-    });
+    throw new ValidationError('Description must be a string or null', ['description']);
   }
 
   if (typeof description === 'string' && description.length > 2000) {
-    throw new ValidationError('Description cannot exceed 2000 characters', {
-      field: 'description',
-      code: 'VALUE_TOO_LONG',
-      maxLength: 2000,
-      actualLength: description.length,
-    });
+    throw new ValidationError('Description cannot exceed 2000 characters', ['description']);
   }
 }
 
 function validateTags(tags: any): void {
   if (!Array.isArray(tags)) {
-    throw new ValidationError('Tags must be an array', {
-      field: 'tags',
-      code: 'INVALID_TYPE',
-      expected: 'array',
-      actual: typeof tags,
-    });
+    throw new ValidationError('Tags must be an array', ['tags']);
   }
 
   if (tags.length > 10) {
-    throw new ValidationError('Maximum 10 tags allowed', {
-      field: 'tags',
-      code: 'TOO_MANY_ITEMS',
-      maxItems: 10,
-      actualItems: tags.length,
-    });
+    throw new ValidationError('Maximum 10 tags allowed', ['tags']);
   }
 
   for (const [index, tag] of tags.entries()) {
     if (typeof tag !== 'string') {
-      throw new ValidationError(`Tag at index ${index} must be a string`, {
-        field: `tags[${index}]`,
-        code: 'INVALID_TYPE',
-        expected: 'string',
-        actual: typeof tag,
-      });
+      throw new ValidationError(`Tag at index ${index} must be a string`, [`tags[${index}]`]);
     }
 
     if (tag.trim().length === 0) {
-      throw new ValidationError(`Tag at index ${index} cannot be empty`, {
-        field: `tags[${index}]`,
-        code: 'EMPTY_VALUE',
-      });
+      throw new ValidationError(`Tag at index ${index} cannot be empty`, [`tags[${index}]`]);
     }
 
     if (tag.length > 50) {
-      throw new ValidationError(`Tag at index ${index} cannot exceed 50 characters`, {
-        field: `tags[${index}]`,
-        code: 'VALUE_TOO_LONG',
-        maxLength: 50,
-        actualLength: tag.length,
-      });
+      throw new ValidationError(`Tag at index ${index} cannot exceed 50 characters`, [`tags[${index}]`]);
     }
   }
 }
 
 function validateIsPublic(isPublic: any): void {
   if (typeof isPublic !== 'boolean') {
-    throw new ValidationError('isPublic must be a boolean', {
-      field: 'isPublic',
-      code: 'INVALID_TYPE',
-      expected: 'boolean',
-      actual: typeof isPublic,
-    });
+    throw new ValidationError('isPublic must be a boolean', ['isPublic']);
   }
 }

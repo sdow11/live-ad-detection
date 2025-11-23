@@ -1,4 +1,4 @@
-import { Repository, FindManyOptions, Like, In } from 'typeorm';
+import { Repository, FindManyOptions, Like, In, IsNull } from 'typeorm';
 import { IContentRepository } from '@/interfaces/IContentRepository';
 import { Content, ContentData, ContentUpdateDto, ContentFilter, ContentType, ContentStatus } from '@/models/Content';
 import { ContentEntity } from '@/database/entities/ContentEntity';
@@ -50,7 +50,7 @@ export class ContentRepository implements IContentRepository {
       
       return this.entityToModel(savedEntity);
     } catch (error) {
-      throw new InternalServerError(`Failed to create content: ${error.message}`);
+      throw new InternalServerError(`Failed to create content: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -69,7 +69,7 @@ export class ContentRepository implements IContentRepository {
 
       return this.entityToModel(entity);
     } catch (error) {
-      throw new InternalServerError(`Failed to find content: ${error.message}`);
+      throw new InternalServerError(`Failed to find content: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -84,7 +84,7 @@ export class ContentRepository implements IContentRepository {
       
       return entities.map(entity => this.entityToModel(entity));
     } catch (error) {
-      throw new InternalServerError(`Failed to find content: ${error.message}`);
+      throw new InternalServerError(`Failed to find content: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -120,7 +120,7 @@ export class ContentRepository implements IContentRepository {
       
       return this.entityToModel(updatedEntity);
     } catch (error) {
-      throw new InternalServerError(`Failed to update content: ${error.message}`);
+      throw new InternalServerError(`Failed to update content: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -133,7 +133,7 @@ export class ContentRepository implements IContentRepository {
       
       return result.affected !== undefined && result.affected > 0;
     } catch (error) {
-      throw new InternalServerError(`Failed to delete content: ${error.message}`);
+      throw new InternalServerError(`Failed to delete content: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -145,7 +145,7 @@ export class ContentRepository implements IContentRepository {
       const entities = await this.repository.find({
         where: { 
           userId,
-          deletedAt: null, // Exclude soft-deleted content
+          deletedAt: IsNull(), // Exclude soft-deleted content
         },
         order: {
           createdAt: 'DESC',
@@ -154,7 +154,7 @@ export class ContentRepository implements IContentRepository {
       
       return entities.map(entity => this.entityToModel(entity));
     } catch (error) {
-      throw new InternalServerError(`Failed to find user content: ${error.message}`);
+      throw new InternalServerError(`Failed to find user content: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -169,7 +169,7 @@ export class ContentRepository implements IContentRepository {
       
       return count > 0;
     } catch (error) {
-      throw new InternalServerError(`Failed to check content existence: ${error.message}`);
+      throw new InternalServerError(`Failed to check content existence: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -178,44 +178,51 @@ export class ContentRepository implements IContentRepository {
    */
 
   private buildFindOptions(filter?: ContentFilter): FindManyOptions<ContentEntity> {
+    // Base where condition
+    const baseWhere = {
+      deletedAt: IsNull(), // Exclude soft-deleted content by default
+    };
+
     const options: FindManyOptions<ContentEntity> = {
-      where: {
-        deletedAt: null, // Exclude soft-deleted content by default
+      where: baseWhere,
+      order: {
+        createdAt: 'DESC',
       },
-      order: {},
     };
 
     if (!filter) {
       return options;
     }
 
-    // Build where conditions
+    // Build additional where conditions
+    const whereConditions: any = { ...baseWhere };
+
     if (filter.contentType) {
-      options.where.contentType = filter.contentType;
+      whereConditions.contentType = filter.contentType;
     }
 
     if (filter.status) {
-      options.where.status = filter.status;
+      whereConditions.status = filter.status;
     }
 
     if (filter.isPublic !== undefined) {
-      options.where.isPublic = filter.isPublic;
+      whereConditions.isPublic = filter.isPublic;
     }
 
     if (filter.tags && filter.tags.length > 0) {
-      // PostgreSQL array contains operation
-      options.where = {
-        ...options.where,
-        tags: () => `tags && ARRAY[${filter.tags.map(tag => `'${tag}'`).join(',')}]`,
-      };
+      // Use array overlap operator for PostgreSQL
+      whereConditions.tags = filter.tags;
     }
 
+    // Handle search with separate where conditions
     if (filter.search) {
-      // Search in title and description
+      const searchPattern = `%${filter.search}%`;
       options.where = [
-        { ...options.where, title: Like(`%${filter.search}%`) },
-        { ...options.where, description: Like(`%${filter.search}%`) },
+        { ...whereConditions, title: Like(searchPattern) },
+        { ...whereConditions, description: Like(searchPattern) },
       ];
+    } else {
+      options.where = whereConditions;
     }
 
     // Pagination
@@ -229,11 +236,10 @@ export class ContentRepository implements IContentRepository {
 
     // Sorting
     if (filter.sortBy) {
-      const order = filter.sortOrder || 'desc';
-      options.order[filter.sortBy] = order.toUpperCase() as 'ASC' | 'DESC';
-    } else {
-      // Default sorting by creation date
-      options.order.createdAt = 'DESC';
+      const order = (filter.sortOrder || 'desc').toUpperCase() as 'ASC' | 'DESC';
+      options.order = {
+        [filter.sortBy]: order,
+      };
     }
 
     return options;
@@ -251,20 +257,20 @@ export class ContentRepository implements IContentRepository {
       mimeType: entity.mimeType,
       fileSize: entity.fileSize,
       filePath: entity.filePath,
-      thumbnailPath: entity.thumbnailPath,
+      thumbnailPath: entity.thumbnailPath || undefined,
       title: entity.title,
-      description: entity.description,
+      description: entity.description || undefined,
       tags: entity.tags,
       contentType: entity.contentType,
-      duration: entity.duration,
-      width: entity.width,
-      height: entity.height,
+      duration: entity.duration || undefined,
+      width: entity.width || undefined,
+      height: entity.height || undefined,
       metadata: entity.metadata,
       status: entity.status,
       isPublic: entity.isPublic,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
-      deletedAt: entity.deletedAt,
+      deletedAt: entity.deletedAt || undefined,
     });
   }
 }
