@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * - Error handling
  * - Resource cleanup
  */
-class UsbCameraManager(private val context: Context) {
+class UsbCameraManager(private val context: Context) : IUsbCameraManager {
 
     companion object {
         private const val TAG = "UsbCameraManager"
@@ -187,6 +187,32 @@ class UsbCameraManager(private val context: Context) {
             usbManager.requestPermission(device, intent)
         }
     }
+
+    /**
+     * Open camera device (public interface method)
+     */
+    override fun openCamera(device: UsbDevice): Boolean {
+        return runBlocking {
+            initialize(device)
+        }
+    }
+
+    /**
+     * Close camera and release resources (public interface method)
+     */
+    override fun closeCamera() {
+        stopCapture()
+        uvcCamera?.close()
+        uvcCamera = null
+        usbMonitor?.unregister()
+        currentDevice = null
+        status = CameraStatus.DISCONNECTED
+    }
+
+    /**
+     * Get current camera status (public interface method)
+     */
+    override fun getStatus(): CameraStatus = status
 
     /**
      * Initialize camera with USB device
