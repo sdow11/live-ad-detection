@@ -8,6 +8,7 @@ import { DIContainer } from '@/container/DIContainer';
 import { ContentController } from '@/controllers/ContentController';
 import { ScheduleController } from '@/controllers/ScheduleController';
 import { PiPController } from '@/controllers/PiPController';
+import { AdDetectionController } from '@/controllers/AdDetectionController';
 import { errorHandler, notFoundHandler } from '@/middleware/errorHandlers';
 import { authMiddleware } from '@/middleware/auth';
 import { validateContentUpload } from '@/middleware/validation';
@@ -27,6 +28,7 @@ export class App {
   private contentController: ContentController;
   private scheduleController: ScheduleController;
   private pipController: PiPController;
+  private adDetectionController: AdDetectionController;
 
   constructor() {
     this.app = express();
@@ -48,6 +50,7 @@ export class App {
     this.contentController = this.diContainer.getContentController();
     this.scheduleController = this.diContainer.getScheduleController();
     this.pipController = this.diContainer.getPiPController();
+    this.adDetectionController = this.diContainer.getAdDetectionController();
   }
 
   /**
@@ -140,6 +143,16 @@ export class App {
           'DELETE /api/v1/pip/sessions/:id': 'End PiP session',
           'GET /api/v1/pip/config': 'Get PiP configuration',
           'PATCH /api/v1/pip/config': 'Update PiP configuration',
+          'POST /api/v1/ad-detection/initialize': 'Initialize ad detection',
+          'POST /api/v1/ad-detection/start': 'Start ad detection',
+          'POST /api/v1/ad-detection/stop': 'Stop ad detection',
+          'GET /api/v1/ad-detection/status': 'Get ad detection status',
+          'GET /api/v1/ad-detection/stats': 'Get detection statistics',
+          'GET /api/v1/ad-detection/detections': 'Get recent detections',
+          'POST /api/v1/ad-detection/streams': 'Add video stream',
+          'DELETE /api/v1/ad-detection/streams/:id': 'Remove video stream',
+          'GET /api/v1/ad-detection/config': 'Get detection configuration',
+          'PATCH /api/v1/ad-detection/config': 'Update detection configuration',
         },
       });
     });
@@ -152,6 +165,9 @@ export class App {
 
     // Picture-in-Picture API routes
     this.setupPiPRoutes();
+
+    // Ad Detection API routes
+    this.setupAdDetectionRoutes();
 
     // Serve static files
     this.app.use('/files', express.static(
@@ -328,6 +344,76 @@ export class App {
 
     // Mount PiP routes
     this.app.use('/api/v1/pip', router);
+  }
+
+  /**
+   * Setup Ad Detection routes
+   */
+  private setupAdDetectionRoutes(): void {
+    const router = express.Router();
+
+    // Apply authentication middleware to all ad detection routes
+    router.use(authMiddleware);
+
+    // Ad detection system control
+    router.post('/initialize', 
+      this.adDetectionController.initialize.bind(this.adDetectionController)
+    );
+
+    router.post('/start', 
+      this.adDetectionController.start.bind(this.adDetectionController)
+    );
+
+    router.post('/stop', 
+      this.adDetectionController.stop.bind(this.adDetectionController)
+    );
+
+    router.get('/status', 
+      this.adDetectionController.getStatus.bind(this.adDetectionController)
+    );
+
+    router.get('/stats', 
+      this.adDetectionController.getStats.bind(this.adDetectionController)
+    );
+
+    // Detection data and history
+    router.get('/detections', 
+      this.adDetectionController.getRecentDetections.bind(this.adDetectionController)
+    );
+
+    // Stream management
+    router.post('/streams', 
+      this.adDetectionController.addStream.bind(this.adDetectionController)
+    );
+
+    router.delete('/streams/:streamId', 
+      this.adDetectionController.removeStream.bind(this.adDetectionController)
+    );
+
+    // Configuration management
+    router.get('/config', 
+      this.adDetectionController.getConfig.bind(this.adDetectionController)
+    );
+
+    router.patch('/config', 
+      this.adDetectionController.updateConfig.bind(this.adDetectionController)
+    );
+
+    // Testing and diagnostics
+    router.post('/test', 
+      this.adDetectionController.testDetection.bind(this.adDetectionController)
+    );
+
+    router.get('/sources', 
+      this.adDetectionController.getSupportedSources.bind(this.adDetectionController)
+    );
+
+    router.post('/trigger-test', 
+      this.adDetectionController.triggerTestDetection.bind(this.adDetectionController)
+    );
+
+    // Mount ad detection routes
+    this.app.use('/api/v1/ad-detection', router);
   }
 
   /**

@@ -4,16 +4,19 @@ import { ScheduleRepository } from '@/database/repositories/ScheduleRepository';
 import { ContentService } from '@/services/ContentService';
 import { ScheduleService } from '@/services/ScheduleService';
 import { PiPAutomationService } from '@/services/PiPAutomationService';
+import { AdDetectionBridge } from '@/services/AdDetectionBridge';
 import { LocalStorageService } from '@/services/LocalStorageService';
 import { MediaProcessorService } from '@/services/MediaProcessorService';
 import { ContentController } from '@/controllers/ContentController';
 import { ScheduleController } from '@/controllers/ScheduleController';
 import { PiPController } from '@/controllers/PiPController';
+import { AdDetectionController } from '@/controllers/AdDetectionController';
 import { IContentRepository } from '@/interfaces/IContentRepository';
 import { IScheduleRepository } from '@/interfaces/IScheduleRepository';
 import { IContentService } from '@/interfaces/IContentService';
 import { IScheduleService } from '@/interfaces/IScheduleService';
 import { IPiPAutomationService } from '@/interfaces/IPiPAutomationService';
+import { IAdDetectionBridge } from '@/interfaces/IAdDetectionBridge';
 import { IStorageService } from '@/interfaces/IStorageService';
 import { IMediaProcessor } from '@/interfaces/IMediaProcessor';
 
@@ -34,9 +37,11 @@ export class DIContainer {
   private contentService: IContentService | null = null;
   private scheduleService: IScheduleService | null = null;
   private pipAutomationService: IPiPAutomationService | null = null;
+  private adDetectionBridge: IAdDetectionBridge | null = null;
   private contentController: ContentController | null = null;
   private scheduleController: ScheduleController | null = null;
   private pipController: PiPController | null = null;
+  private adDetectionController: AdDetectionController | null = null;
 
   /**
    * Initialize all services with proper dependency injection
@@ -97,6 +102,14 @@ export class DIContainer {
         this.contentService
       );
     }
+
+    if (!this.adDetectionBridge && this.scheduleService && this.contentService && this.pipAutomationService) {
+      this.adDetectionBridge = new AdDetectionBridge(
+        this.scheduleService,
+        this.contentService,
+        this.pipAutomationService
+      );
+    }
   }
 
   /**
@@ -113,6 +126,10 @@ export class DIContainer {
 
     if (!this.pipController && this.pipAutomationService) {
       this.pipController = new PiPController(this.pipAutomationService);
+    }
+
+    if (!this.adDetectionController && this.adDetectionBridge) {
+      this.adDetectionController = new AdDetectionController(this.adDetectionBridge);
     }
   }
 
@@ -187,6 +204,16 @@ export class DIContainer {
   }
 
   /**
+   * Get Ad Detection Bridge instance
+   */
+  getAdDetectionBridge(): IAdDetectionBridge {
+    if (!this.adDetectionBridge) {
+      throw new Error('AdDetectionBridge not initialized. Call initialize() first.');
+    }
+    return this.adDetectionBridge;
+  }
+
+  /**
    * Get Content Controller instance
    */
   getContentController(): ContentController {
@@ -217,6 +244,16 @@ export class DIContainer {
   }
 
   /**
+   * Get Ad Detection Controller instance
+   */
+  getAdDetectionController(): AdDetectionController {
+    if (!this.adDetectionController) {
+      throw new Error('AdDetectionController not initialized. Call initialize() first.');
+    }
+    return this.adDetectionController;
+  }
+
+  /**
    * Reset all instances (useful for testing)
    */
   reset(): void {
@@ -227,9 +264,11 @@ export class DIContainer {
     this.contentService = null;
     this.scheduleService = null;
     this.pipAutomationService = null;
+    this.adDetectionBridge = null;
     this.contentController = null;
     this.scheduleController = null;
     this.pipController = null;
+    this.adDetectionController = null;
   }
 
   /**

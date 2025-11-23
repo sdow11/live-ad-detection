@@ -5,6 +5,7 @@ import { ContentUpload } from '@/components/content/ContentUpload';
 import { ContentList } from '@/components/content/ContentList';
 import { ScheduleForm } from '@/components/schedule/ScheduleForm';
 import { ScheduleList } from '@/components/schedule/ScheduleList';
+import { AdDetectionDashboard } from '@/components/detection/AdDetectionDashboard';
 import { Button } from '@/components/ui/button';
 import { Content, Schedule } from '@/lib/api';
 import {
@@ -17,6 +18,7 @@ import {
   Home,
   Menu,
   X,
+  Brain,
 } from 'lucide-react';
 
 /**
@@ -26,7 +28,7 @@ import {
  * Provides navigation, quick actions, and comprehensive content management
  */
 
-type View = 'dashboard' | 'content' | 'schedules' | 'upload' | 'schedule-form' | 'analytics';
+type View = 'dashboard' | 'content' | 'schedules' | 'upload' | 'schedule-form' | 'analytics' | 'ad-detection';
 
 interface DashboardLayoutProps {
   defaultView?: View;
@@ -79,6 +81,7 @@ export function DashboardLayout({ defaultView = 'dashboard' }: DashboardLayoutPr
     { id: 'dashboard', name: 'Dashboard', icon: Home },
     { id: 'content', name: 'Content Library', icon: PlayCircle },
     { id: 'schedules', name: 'Schedules', icon: Calendar },
+    { id: 'ad-detection', name: 'Ad Detection', icon: Brain },
     { id: 'analytics', name: 'Analytics', icon: BarChart3 },
   ];
 
@@ -143,6 +146,9 @@ export function DashboardLayout({ defaultView = 'dashboard' }: DashboardLayoutPr
           />
         );
       
+      case 'ad-detection':
+        return <AdDetectionDashboard />;
+      
       case 'analytics':
         return (
           <div className="text-center py-12">
@@ -163,6 +169,7 @@ export function DashboardLayout({ defaultView = 'dashboard' }: DashboardLayoutPr
   const currentNavItem = navigation.find(item => item.id === currentView);
   const pageTitle = currentView === 'upload' ? 'Upload Content' 
                   : currentView === 'schedule-form' ? (selectedSchedule ? 'Edit Schedule' : 'Create Schedule')
+                  : currentView === 'ad-detection' ? 'AI Ad Detection'
                   : currentNavItem?.name || 'Dashboard';
 
   return (
