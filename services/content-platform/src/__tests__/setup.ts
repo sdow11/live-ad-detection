@@ -3,6 +3,8 @@
  * Configure global test environment
  */
 
+import '@testing-library/jest-dom';
+
 // Mock console methods in tests to reduce noise
 global.console = {
   ...console,
@@ -23,3 +25,23 @@ process.env.UPLOAD_PATH = '/tmp/test-uploads';
 const mockDate = new Date('2023-01-01T00:00:00.000Z');
 jest.spyOn(global, 'Date').mockImplementation(() => mockDate as any);
 (Date as any).now = jest.fn(() => mockDate.getTime());
+
+// Mock window.innerWidth for responsive tests
+Object.defineProperty(window, 'innerWidth', {
+  writable: true,
+  configurable: true,
+  value: 1024,
+});
+
+// Mock window.addEventListener
+Object.defineProperty(window, 'addEventListener', {
+  writable: true,
+  configurable: true,
+  value: jest.fn(),
+});
+
+Object.defineProperty(window, 'removeEventListener', {
+  writable: true,
+  configurable: true,
+  value: jest.fn(),
+});
