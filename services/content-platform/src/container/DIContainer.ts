@@ -7,6 +7,8 @@ import { PiPAutomationService } from '@/services/PiPAutomationService';
 import { AdDetectionBridge } from '@/services/AdDetectionBridge';
 import { LocalStorageService } from '@/services/LocalStorageService';
 import { MediaProcessorService } from '@/services/MediaProcessorService';
+import { SmartPiPAutomationService } from '@/services/SmartPiPAutomationService';
+import { PiPMobileIntegrationService } from '@/services/PiPMobileIntegrationService';
 import { ContentController } from '@/controllers/ContentController';
 import { ScheduleController } from '@/controllers/ScheduleController';
 import { PiPController } from '@/controllers/PiPController';
@@ -42,6 +44,8 @@ export class DIContainer {
   private scheduleController: ScheduleController | null = null;
   private pipController: PiPController | null = null;
   private adDetectionController: AdDetectionController | null = null;
+  private smartPiPAutomationService: SmartPiPAutomationService | null = null;
+  private pipMobileIntegrationService: PiPMobileIntegrationService | null = null;
 
   /**
    * Initialize all services with proper dependency injection
